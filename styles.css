@@ -224,3 +224,26 @@ h1 { font-size: 34px; line-height: 1.1; } h2 { font-size: 18px; } h3 { font-size
 .tape-kind.launch { color: var(--green); border-color: var(--green-deep); }
 .tape-kind.buy { color: var(--green); border-color: var(--green-deep); }
 .tape-kind.sell { color: var(--red); border-color: #5c2a2a; }
+
+/* streaks, badges, mvp, rivals */
+.streak { display: inline-flex; align-items: center; gap: 3px; color: #FF9F43; font-family: var(--pixel); font-size: 11px; vertical-align: middle; margin-left: 4px; }
+.badges { margin-top: 8px; }
+.badge { color: var(--text); border-color: var(--border-2); font-weight: 700; }
+.badge.b-podium { color: var(--gold); border-color: #5c4a10; }
+.badge.b-fire, .badge.b-hot { color: #FF9F43; border-color: #5c3a10; }
+.badge.b-double { color: var(--up); border-color: var(--green-deep); }
+.badge.b-verified { color: #5B8CFF; border-color: #243a6b; }
+.season-strip { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.season-strip:has(.mvp-card) { grid-template-columns: 1fr 340px; }
+.mvp-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; border: 1px solid #5c4a10; border-radius: var(--r); background: var(--panel); }
+.mvp-card .season-label { color: var(--gold); }
+.mvp-body { display: flex; align-items: center; gap: 10px; }
+.mvp-pct { margin-left: auto; font-family: var(--pixel); font-size: 20px; color: var(--up); }
+.rival-grid { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 14px; align-items: stretch; }
+.rival-side { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.rival-vs { display: grid; place-items: center; font-family: var(--pixel); font-size: 28px; color: var(--muted); }
+@media (max-width: 900px) { .season-strip:has(.mvp-card) { grid-template-columns: 1fr; } .rival-grid { grid-template-columns: 1fr; } .rival-vs { font-size: 20px; } }
+
+.nav a { white-space: nowrap; }
+@media (max-width: 1500px) { .nav a[href="skill.md"] { display: none; } .search { width: 200px; } .topbar { gap: 14px; } .nav a { padding: 8px 9px; } }
+@media (max-width: 1280px) { .search { display: none; } }

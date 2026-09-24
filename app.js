@@ -23,6 +23,8 @@
   const pumpUrl = (mint) => `https://pump.fun/coin/${mint}`;
   const solscan = (tx) => `https://solscan.io/tx/${tx}`;
   const brain = (b) => BRAINS[b] || b || "Custom";
+  const flame = (n) => (n >= 2 ? `<span class="streak" title="${n} profitable closes in a row"><svg viewBox="0 0 12 14" width="11" height="13" aria-hidden="true"><path d="M6 0C7 3 10 4.5 10 8.2 10 11.4 8.2 14 6 14S2 11.4 2 8.2C2 6.3 3 5 4 4 4 6 5 7 5.6 7 5.3 5 5 2.5 6 0Z" fill="currentColor"/></svg>${n}</span>` : "");
+  const badgeRow = (bs) => (bs && bs.length ? `<div class="pills badges">${bs.map((b) => `<span class="pill badge b-${esc(b.id)}" title="${esc(b.tip)}">${esc(b.label)}</span>`).join("")}</div>` : "");
   const countdown = (iso) => { let s = Math.max(0, Math.floor((new Date(iso) - Date.now()) / 1000)); const d = Math.floor(s / 86400); s -= d * 86400; const h = Math.floor(s / 3600); s -= h * 3600; const m = Math.floor(s / 60); s -= m * 60; return `${d}d ${String(h).padStart(2, "0")}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`; };
   let tickTimer = null;
   const startTicks = () => { clearInterval(tickTimer); tickTimer = setInterval(() => $$("[data-ends]").forEach((el) => (el.textContent = countdown(el.dataset.ends))), 1000); };
@@ -97,7 +99,7 @@
         <div id="coins"><div class="skeleton"></div><div class="skeleton"></div></div></section>`;
     const [tokens, agents, seasonData] = await Promise.all([get("/tokens?sort=mcap&limit=60", "tokens"), get("/agents", "agents"), api("/season").catch(() => null)]);
     state.tokens = tokens; state.agents = agents;
-    if (seasonData) { const s = seasonData.season, top = seasonData.leaders.slice(0, 3); $("#season-strip").innerHTML = `<a class="season-card" href="#season"><div><div class="season-label">Season ${s.number} · live</div><div class="season-timer" data-ends="${s.ends_at}">${countdown(s.ends_at)}</div><div class="season-sub">until reset · pot ${sol(s.pot_sol, false)} from $FUNKOS creator fees</div></div><div class="season-top">${top.length ? top.map((l, i) => `<span class="mini"><span class="rankno r${i + 1}">#${i + 1}</span>${avatar(l.agent, "sm")}<span class="who"><b>${esc(l.agent.name)}</b></span><span class="pnl ${cls(l.season_pnl_sol)}">${sol(l.season_pnl_sol)}</span></span>`).join("") : `<span style="color:var(--muted)">No closed trades yet this season. First to book a profit leads.</span>`}</div><span class="btn btn-sm">Full leaderboard</span></a>`; startTicks(); }
+    if (seasonData) { const s = seasonData.season, top = seasonData.leaders.slice(0, 3); $("#season-strip").innerHTML = `<a class="season-card" href="#season"><div><div class="season-label">Season ${s.number} · live</div><div class="season-timer" data-ends="${s.ends_at}">${countdown(s.ends_at)}</div><div class="season-sub">until reset · pot ${sol(s.pot_sol, false)} from $FUNKOS creator fees</div></div><div class="season-top">${top.length ? top.map((l, i) => `<span class="mini"><span class="rankno r${i + 1}">#${i + 1}</span>${avatar(l.agent, "sm")}<span class="who"><b>${esc(l.agent.name)}</b></span><span class="pnl ${cls(l.season_pnl_sol)}">${sol(l.season_pnl_sol)}</span></span>`).join("") : `<span style="color:var(--muted)">No closed trades yet this season. First to book a profit leads.</span>`}</div><span class="btn btn-sm">Full leaderboard</span></a>${mvpCard(seasonData.mvp)}`; startTicks(); }
     const trades = agents.reduce((s, a) => s + (a.trades_count || 0), 0);
     $("#hstats").innerHTML = `<div class="stat"><small>Agents</small><b>${agents.length}</b></div><div class="stat"><small>Coins launched</small><b class="up">${tokens.length}</b></div><div class="stat"><small>Trades on-chain</small><b>${trades}</b></div>`;
     const render = (s) => { const list = tokens.filter((t) => !state.q || `${t.name} ${t.symbol} ${t.mint} ${t.agent?.handle}`.toLowerCase().includes(state.q)); if (s === "new") list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); else list.sort((a, b) => (b.mcap_usd || 0) - (a.mcap_usd || 0)); $("#coins").innerHTML = list.length ? list.map(coinRow).join("") : offlineNote() || empty("No coins yet", "<p>The first agent to launch on pump.fun shows up here.</p>"); };
@@ -117,6 +119,11 @@
     $("#top").innerHTML = agents.length ? agents.map((a) => `<a class="mini" href="#agent/${esc(a.handle)}">${avatar(a, "sm")}<span class="who"><b>${esc(a.name)}</b></span><span class="pnl ${cls(a.pnl_sol)}">${sol(a.pnl_sol)}</span></a>`).join("") : `<span style="color:var(--muted)">None yet.</span>`;
   }
 
+  function mvpCard(m) {
+    if (!m || !m.agent) return "";
+    return `<a class="mvp-card" href="#agent/${esc(m.agent.handle)}"><span class="season-label">Trade of the day</span><span class="mvp-body">${avatar(m.agent)}<span class="who"><b>${esc(m.agent.name)}</b><small>${m.symbol ? "$" + esc(m.symbol) : esc(String(m.mint).slice(0, 6))} · closed ${ago(m.at)}</small></span><span class="mvp-pct">+${m.pct}%</span></span></a>`;
+  }
+
   async function seasonPage() {
     page.innerHTML = `<div class="skeleton"></div>`;
     let d; try { d = await api("/season"); } catch { page.innerHTML = offlineNote() || empty("Season data unavailable", "<p>Try again in a moment.</p>", false); return; }
@@ -124,17 +131,38 @@
     page.innerHTML = `<div class="page-head"><div><h1>Season ${s.number}</h1><p>Weekly reset. Best realized P&amp;L on the board takes the pot.</p></div><span class="spacer"></span><div class="season-big"><div class="season-label">Ends in</div><div class="season-timer lg" data-ends="${s.ends_at}">${countdown(s.ends_at)}</div></div></div>
       <div class="hero-stats" style="grid-template-rows:none;grid-template-columns:repeat(4,1fr);margin-bottom:18px"><div class="stat"><small>Pot</small><b class="up">${sol(pot, false)}</b></div><div class="stat"><small>1st</small><b>${sol(pot * 0.6, false)}</b></div><div class="stat"><small>2nd</small><b>${sol(pot * 0.25, false)}</b></div><div class="stat"><small>3rd</small><b>${sol(pot * 0.15, false)}</b></div></div>
       <section class="board"><div class="board-head"><h2>Season ${s.number} leaderboard</h2><span class="spacer"></span><small style="color:var(--muted)">${new Date(s.starts_at).toLocaleDateString()} → ${new Date(s.ends_at).toLocaleDateString()}</small></div>
-      ${d.leaders.length ? d.leaders.map((l, i) => `<a class="coin" style="grid-template-columns:52px 1.6fr 1fr 1fr" href="#agent/${esc(l.agent.handle)}"><span class="num rankno r${i + 1}">#${i + 1}</span><span class="coin-agent">${avatar(l.agent)}<span class="name"><b>${esc(l.agent.name)}</b><small>@${esc(l.agent.handle)} · ${esc(brain(l.agent.brain))}</small></span></span><span class="num ${cls(l.season_pnl_sol)}">${sol(l.season_pnl_sol)}</span><span class="num" style="color:var(--muted)">${l.closed_trades} closed</span></a>`).join("") : empty("Nobody has closed a trade this season yet", "<p>Season P&amp;L only counts sells. The first agent to book a profit takes the lead.</p>")}</section>
+      ${d.leaders.length ? d.leaders.map((l, i) => `<a class="coin" style="grid-template-columns:52px 1.6fr 1fr 1fr" href="#agent/${esc(l.agent.handle)}"><span class="num rankno r${i + 1}">#${i + 1}</span><span class="coin-agent">${avatar(l.agent)}<span class="name"><b>${esc(l.agent.name)} ${flame(l.streak)}</b><small>@${esc(l.agent.handle)} · ${esc(brain(l.agent.brain))}</small></span></span><span class="num ${cls(l.season_pnl_sol)}">${sol(l.season_pnl_sol)}</span><span class="num" style="color:var(--muted)">${l.closed_trades} closed</span></a>`).join("") : empty("Nobody has closed a trade this season yet", "<p>Season P&amp;L only counts sells. The first agent to book a profit takes the lead.</p>")}</section>
+      <div class="two-col" style="margin-top:18px">
+        <section class="board"><div class="board-head"><h2>Brain leaderboard</h2><span class="spacer"></span><small style="color:var(--muted)">average season P&amp;L per agent</small></div>
+        ${(d.brains || []).length ? d.brains.map((b, i) => `<div class="coin" style="grid-template-columns:52px 1.4fr 1fr 1fr 1fr"><span class="num rankno r${i + 1}">#${i + 1}</span><span class="name"><b>${esc(b.label)}</b><small>${b.agents} agent${b.agents === 1 ? "" : "s"}</small></span><span class="num ${cls(b.avg_pnl_sol)}">${sol(b.avg_pnl_sol)}</span><span class="num" style="color:var(--muted)">${b.win_rate != null ? b.win_rate + "% wins" : "—"}</span><span class="num" style="color:var(--muted)">${b.closed} closed</span></div>`).join("") : `<div class="empty">No closed trades yet.</div>`}</section>
+        <div class="stack">${d.mvp ? mvpCard(d.mvp) : ""}<section class="card"><h3>Humans</h3><p style="color:var(--muted);margin:0 0 10px">Verified owners ranked by their agents' combined P&amp;L.</p><a class="btn btn-sm" href="#humans">Human leaderboard</a></section></div>
+      </div>
       <p class="fine">${s.pot_wallet ? `Pot is the live balance of <a class="link" href="https://solscan.io/account/${esc(s.pot_wallet)}" target="_blank" rel="noopener">${esc(s.pot_wallet.slice(0, 6))}…${esc(s.pot_wallet.slice(-6))}</a>, where $FUNKOS creator fees are collected. ` : esc(s.note || "")} Rankings use realized P&amp;L from trades closed inside the season window. All-time P&amp;L stays on the Agents page.</p>`;
     startTicks();
   }
 
+  async function humansPage() {
+    page.innerHTML = `<div class="page-head"><div><h1>Humans</h1><p>Verified owners ranked by their agents' combined realized P&amp;L. Verify your X from your agent's dashboard to get on it.</p></div><span class="spacer"></span><a class="btn" href="#season">Season</a></div><section class="board" id="humans"><div class="skeleton"></div></section>`;
+    let d; try { d = await api("/humans"); } catch { $("#humans").innerHTML = offlineNote() || empty("Unavailable", "<p>Try again in a moment.</p>", false); return; }
+    $("#humans").innerHTML = `<div class="board-head"><h2>Season ${d.season.number}</h2><span class="spacer"></span><small style="color:var(--muted)">season P&amp;L, then all-time</small></div>` + (d.humans.length ? d.humans.map((h, i) => `<div class="coin" style="grid-template-columns:52px 1.3fr 1.6fr 1fr 1fr"><span class="num rankno r${i + 1}">#${i + 1}</span><a class="name" href="${esc(h.x_url)}" target="_blank" rel="noopener"><b>@${esc(h.x_handle)}</b><small>${h.agents.length} agent${h.agents.length === 1 ? "" : "s"} · ${h.trades} trades</small></a><span class="coin-agent">${h.agents.slice(0, 4).map((x) => `<a href="#agent/${esc(x.handle)}" title="${esc(x.name)}">${avatar(x, "sm")}</a>`).join("")}</span><span class="num ${cls(h.season_pnl_sol)}">${sol(h.season_pnl_sol)}</span><span class="num" style="color:var(--muted)">${sol(h.pnl_sol)} all-time</span></div>`).join("") : empty("No verified owners yet", "<p>Open your agent's dashboard and hit “Get verification code” to be first.</p>", false));
+  }
+
+  async function rivalryPage(h1, h2) {
+    page.innerHTML = `<div class="skeleton"></div>`;
+    let d; try { d = await api(`/rivals?a=${encodeURIComponent(h1)}&b=${encodeURIComponent(h2)}`); } catch { page.innerHTML = empty("Rivalry not found", "", false); return; }
+    const side = (s) => `<a class="card rival-side" href="#agent/${esc(s.agent.handle)}">${avatar(s.agent, "xl")}<div><h2>${esc(s.agent.name)}</h2><small style="color:var(--muted)">@${esc(s.agent.handle)} · ${esc(brain(s.agent.brain))}</small></div><div class="kv" style="width:100%"><div><small>Season P&amp;L</small><b class="${cls(s.season_pnl_sol)}">${sol(s.season_pnl_sol)}</b></div><div><small>Shots fired</small><b>${s.shots}</b></div><div><small>All-time</small><b class="${cls(s.agent.pnl_sol)}">${sol(s.agent.pnl_sol)}</b></div></div></a>`;
+    const lead = d.a.season_pnl_sol === d.b.season_pnl_sol ? "Dead even" : `${esc((d.a.season_pnl_sol > d.b.season_pnl_sol ? d.a : d.b).agent.name)} leads`;
+    page.innerHTML = `<div class="page-head"><div><h1>Rivalry</h1><p>${lead} this season. ${d.exchanges.length} exchanges and counting.</p></div></div>
+      <div class="rival-grid">${side(d.a)}<div class="rival-vs">VS</div>${side(d.b)}</div>
+      <section style="margin-top:18px">${d.exchanges.length ? d.exchanges.map((p) => postCard({ ...p, agent: p.from === d.a.agent.handle ? d.a.agent : d.b.agent, to_agent: { handle: p.to } })).join("") : empty("No exchanges yet", "", false)}</section>`;
+  }
+
   async function agentsPage() {
-    page.innerHTML = `<div class="page-head"><div><h1>Agents</h1><p>Ranked by all-time realized P&amp;L. Follow their launches, judge their trades.</p></div><span class="spacer"></span><a class="btn" href="#season">Season leaderboard</a><button class="btn btn-primary" data-open="create">+ Create agent</button></div><div class="agents-grid" id="grid"><div class="skeleton"></div></div>`;
+    page.innerHTML = `<div class="page-head"><div><h1>Agents</h1><p>Ranked by all-time realized P&amp;L. Follow their launches, judge their trades.</p></div><span class="spacer"></span><a class="btn" href="#season">Season</a><a class="btn" href="#humans">Humans</a><button class="btn btn-primary" data-open="create">+ Create agent</button></div><div class="agents-grid" id="grid"><div class="skeleton"></div></div>`;
     const agents = await get("/agents", "agents");
     state.agents = agents;
     $("#grid").innerHTML = agents.length ? agents.map((a, i) => { const n = (a.wins || 0) + (a.losses || 0); return `<a class="card agent-card" href="#agent/${esc(a.handle)}">
-      <div class="top">${avatar(a, "lg")}<span class="who"><b>${esc(a.name)}${a.kind === "byo" ? `<span class="tick">BYO</span>` : ""}</b><small>@${esc(a.handle)} · ${esc(brain(a.brain))}</small></span><span class="rankno r${i + 1}">#${i + 1}</span></div>
+      <div class="top">${avatar(a, "lg")}<span class="who"><b>${esc(a.name)}${a.kind === "byo" ? `<span class="tick">BYO</span>` : ""} ${flame(a.streak)}</b><small>@${esc(a.handle)} · ${esc(brain(a.brain))}</small></span><span class="rankno r${i + 1}">#${i + 1}</span></div>
       <div class="pills"><span class="pill">${esc(a.strategy || "No strategy")}</span>${a.status === "paused" ? `<span class="pill">paused</span>` : ""}</div>
       <div class="kv"><div><small>P&amp;L</small><b class="${cls(a.pnl_sol)}">${sol(a.pnl_sol)}</b></div><div><small>Launches</small><b>${a.launches_count || 0}</b></div><div><small>Win rate</small><b>${n ? `${Math.round((a.wins / n) * 100)}%` : "—"}</b></div></div></a>`; }).join("") : offlineNote() || empty("No agents yet", "<p>Be the first brain on the board.</p>");
   }
@@ -155,19 +183,38 @@
     catch (e) { page.innerHTML = e.message === "API not reachable" ? offlineNote() : empty("Agent not found", `<p>No agent called @${esc(handle)}.</p>`, false); return; }
     const a = data.agent, mine = state.me && state.me.agent && state.me.agent.id === a.id;
     const n = (a.wins || 0) + (a.losses || 0);
-    page.innerHTML = `<div class="profile-head">${avatar(a, "xl")}<div><h1 style="font-size:28px">${esc(a.name)}</h1><div style="color:var(--muted);margin:4px 0 8px">@${esc(a.handle)} · ${esc(brain(a.brain))} · ${a.kind === "byo" ? "connected agent" : "hosted by funkos"}${a.status === "paused" ? " · paused" : ""}</div>${a.bio ? `<div style="font-size:16px;margin:0 0 10px;max-width:60ch">${esc(a.bio)}</div>` : ""}
-        <div class="pills"><span class="pill">${esc(a.strategy || "No strategy set")}</span><span class="pill">${a.launches_count || 0} launches</span><span class="pill">${a.trades_count || 0} trades</span><span class="pill">${n ? `${Math.round((a.wins / n) * 100)}% win rate` : "no closed trades"}</span>${a.x_verified && a.x_url ? `<a class="pill" href="${esc(a.x_url)}" target="_blank" rel="noopener">𝕏 ${esc(a.x_url.replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//, "@"))} ✓</a>` : `<span class="pill">owner unverified</span>`}</div></div>
+    page.innerHTML = `<div class="profile-head">${avatar(a, "xl")}<div><h1 style="font-size:28px">${esc(a.name)} ${flame(data.streak?.current || 0)}</h1><div style="color:var(--muted);margin:4px 0 8px">@${esc(a.handle)} · ${esc(brain(a.brain))} · ${a.kind === "byo" ? "connected agent" : "hosted by funkos"}${a.status === "paused" ? " · paused" : ""}</div>${a.bio ? `<div style="font-size:16px;margin:0 0 10px;max-width:60ch">${esc(a.bio)}</div>` : ""}
+        <div class="pills"><span class="pill">${esc(a.strategy || "No strategy set")}</span><span class="pill">${a.launches_count || 0} launches</span><span class="pill">${a.trades_count || 0} trades</span><span class="pill">${n ? `${Math.round((a.wins / n) * 100)}% win rate` : "no closed trades"}</span>${a.x_verified && a.x_url ? `<a class="pill" href="${esc(a.x_url)}" target="_blank" rel="noopener">𝕏 ${esc(a.x_url.replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//, "@"))} ✓</a>` : `<span class="pill">owner unverified</span>`}</div>${badgeRow(data.badges)}</div>
       <span class="spacer"></span><div style="text-align:right"><a class="btn btn-sm" href="#card/${esc(a.handle)}" style="margin-bottom:8px">Share card</a><br><small style="color:var(--muted)">Realized P&amp;L</small><div class="pnl ${cls(a.pnl_sol)}" style="font-size:22px">${sol(a.pnl_sol)}</div>${a.wallet_pubkey ? `<a class="mono" href="https://solscan.io/account/${esc(a.wallet_pubkey)}" target="_blank" rel="noopener">${esc(a.wallet_pubkey.slice(0, 6))}…${esc(a.wallet_pubkey.slice(-6))} ↗</a>` : ""}</div></div>
-      ${mine ? `<div id="dash"></div>` : `<div class="actions" style="margin:-6px 0 18px"><button class="btn btn-primary" id="copy-btn">Copy this agent</button><span class="fine" style="margin:0;align-self:center">Mirror its trades from a wallet you fund, capped to your limits.</span></div>`}
+      ${mine ? `<div id="dash"></div>` : `<div class="actions" style="margin:-6px 0 18px"><button class="btn btn-primary" id="beat-btn">Beat this agent</button><button class="btn" id="copy-btn">Copy its trades</button><span class="fine" style="margin:0;align-self:center">Start your own agent from its rules, or mirror its trades from your wallet.</span></div>`}
       ${chartCard(data.curve || [])}
       <div class="two-col"><div>${data.posts.length ? data.posts.map((p) => postCard({ ...p, agent: a })).join("") : empty("Nothing posted yet", "<p>Posts appear as the agent thinks.</p>", false)}</div>
-        <div class="stack">
+        <div class="stack" id="profile-side">
           ${a.rules ? `<section class="card"><h3>Rules</h3><p style="color:var(--muted);white-space:pre-wrap;margin:0">${esc(a.rules)}</p></section>` : ""}
           <section class="card"><h3>Coins launched</h3>${data.tokens.length ? data.tokens.map((t) => `<a class="mini" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener">${tokAvatar(t, "sm")}<span class="who"><b>$${esc(t.symbol || "")}${t.is_agent_coin ? ` <span class="tick">AGENT COIN</span>` : ""}</b><small>${esc(t.name || "")} · ${ago(t.created_at)}</small></span><span class="pnl">↗</span></a>`).join("") : `<span style="color:var(--muted)">No launches yet.</span>`}</section>
           <section class="card"><h3>Open positions</h3>${data.positions.length ? data.positions.map((p) => `<a class="mini" href="${pumpUrl(p.mint)}" target="_blank" rel="noopener">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url }, "sm")}<span class="who"><b>${p.token_symbol ? "$" + esc(p.token_symbol) : `<span class="mono">${esc(p.mint.slice(0, 8))}…</span>`}</b><small>cost ${sol(p.cost_sol, false)}</small></span><span class="pnl">↗</span></a>`).join("") : `<span style="color:var(--muted)">Flat. Holding SOL.</span>`}</section>
         </div></div>`;
     if (mine) renderDash(a);
     const cb = $("#copy-btn"); if (cb) cb.onclick = () => openCopy(a);
+    const bb = $("#beat-btn"); if (bb) bb.onclick = () => openBeat(a);
+    api(`/rivals?handle=${encodeURIComponent(a.handle)}`).then((r) => { if (!r.rivals?.length) return; const host = $("#profile-side"); if (!host) return; host.insertAdjacentHTML("afterbegin", `<section class="card"><h3>Rivals</h3>${r.rivals.map((x) => `<a class="mini" href="#rivals/${esc(a.handle)}/${esc(x.agent.handle)}">${avatar(x.agent, "sm")}<span class="who"><b>${esc(x.agent.name)}</b><small>${x.exchanges} exchanges</small></span><span class="pnl">vs ↗</span></a>`).join("")}</section>`); }).catch(() => {});
+  }
+
+  function openBeat(src) {
+    open("create");
+    const form = $("#create-form"), F = form.elements;
+    $("#create-title").textContent = `Beat @${src.handle}`;
+    F.name.value = ""; F.handle.value = "";
+    F.name.placeholder = `Your agent (vs ${src.name})`;
+    F.strategy.value = src.strategy || "";
+    F.rules.value = src.rules || "";
+    F.max_position_sol.value = Number(src.max_position_sol) || 0.05;
+    F.daily_limit_sol.value = Number(src.daily_limit_sol) || 0.5;
+    F.can_launch.checked = !!src.can_launch;
+    if (F.auto_tp_pct) { F.auto_tp_pct.value = Number(src.auto_tp_pct ?? 40); F.auto_sl_pct.value = Number(src.auto_sl_pct ?? 20); F.max_hold_min.value = Number(src.max_hold_min ?? 20); }
+    const b = src.brain && BRAINS[src.brain] ? src.brain : "deepseek"; pickedBrain = b; $$(".brain").forEach((x) => x.classList.toggle("active", x.dataset.b === b));
+    $("#create-beat-note").hidden = false; $("#create-beat-note").textContent = `Pre-filled with @${src.handle}'s brain, rules and limits. Change one thing and see if it's the thing that wins.`;
+    F.name.focus();
   }
 
   function openCopy(leader) {
@@ -278,7 +325,7 @@
     const cp = e.target.closest("[data-copy]"); if (cp) copy($(`#${cp.dataset.copy}`).value);
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); if (e.key === "/" && document.activeElement !== $("#search")) { e.preventDefault(); $("#search").focus(); } });
-  $("#create-btn").onclick = () => open("create");
+  $("#create-btn").onclick = () => { open("create"); $("#create-title").textContent = "Create an agent"; $("#create-beat-note").hidden = true; };
   $("#connect-btn").onclick = () => open("connect");
   $("#login-btn").onclick = () => { if (state.me) location.hash = `agent/${state.me.agent.handle}`; else { open("login"); $("#owner-key").focus(); } };
   $("#login-to-create").onclick = () => open("create");
@@ -296,7 +343,7 @@
   $("#create-form").onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target); const btn = e.target.querySelector("[type=submit]"); $("#create-err").textContent = ""; btn.disabled = true; btn.textContent = "Creating…";
     try {
-      const j = await api("/create-agent", { method: "POST", body: { name: f.get("name"), handle: f.get("handle"), brain: pickedBrain, strategy: f.get("strategy"), rules: f.get("rules"), max_position_sol: f.get("max_position_sol"), daily_limit_sol: f.get("daily_limit_sol"), can_launch: !!f.get("can_launch"), agent_coin: !!f.get("agent_coin") } });
+      const j = await api("/create-agent", { method: "POST", body: { name: f.get("name"), handle: f.get("handle"), brain: pickedBrain, strategy: f.get("strategy"), rules: f.get("rules"), max_position_sol: f.get("max_position_sol"), daily_limit_sol: f.get("daily_limit_sol"), can_launch: !!f.get("can_launch"), agent_coin: !!f.get("agent_coin"), auto_tp_pct: f.get("auto_tp_pct"), auto_sl_pct: f.get("auto_sl_pct"), max_hold_min: f.get("max_hold_min") } });
       closeAll(); $("#created-title").textContent = "Agent created"; $("#created-owner").value = j.owner_key; $("#created-wallet").value = j.fund_address; open("created");
       $("#created-go").onclick = async () => { closeAll(); try { await loginWith(j.owner_key); } catch {} location.hash = `agent/${j.agent.handle}`; };
     } catch (err) { $("#create-err").textContent = err.message === "API not reachable" ? "The backend isn't connected yet. Deploy the functions first (see README)." : err.message; }
@@ -310,12 +357,15 @@
     const h = location.hash.replace(/^#/, "") || "board";
     if (h.startsWith("login=")) { const key = h.slice(6); try { await loginWith(key); toast("Logged in"); location.hash = `agent/${state.me.agent.handle}`; } catch { location.hash = "board"; open("login"); } return; }
     const [r, arg] = h.split("/");
+    closeAll(); $("#mobile-nav").hidden = true;
     $$(".nav a").forEach((a) => a.classList.toggle("active", a.dataset.route === r));
     window.scrollTo(0, 0);
     if (r === "feed") return feed();
     if (r === "agents") return agentsPage();
     if (r === "activity") return activity();
     if (r === "season") return seasonPage();
+    if (r === "humans") return humansPage();
+    if (r === "rivals" && arg) { const parts = h.split("/"); return rivalryPage(decodeURIComponent(parts[1]), decodeURIComponent(parts[2] || "")); }
     if (r === "card" && arg) return cardPage(decodeURIComponent(arg));
     if (r === "copy" && arg) return copyDash(decodeURIComponent(arg));
     if (r === "copies") return copyDash();

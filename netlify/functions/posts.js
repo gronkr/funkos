@@ -1,6 +1,7 @@
 const db = require("./lib/db");
 const { json, handler, body, agentFromRequest, publicAgent } = require("./lib/util");
 const { attachCoins } = require("./lib/ledger");
+const { attachReplyTargets } = require("./lib/stats");
 
 const KINDS = ["note", "callout", "trade", "launch"];
 
@@ -13,12 +14,9 @@ exports.handler = handler(async (event) => {
     if (q.kind === "trades") filter = `&kind=in.(trade,launch)`;
     const lim = Math.min(Number(q.limit) || 40, 100);
     let posts;
-    try {
-      posts = await db.select("posts", `order=created_at.desc&limit=${lim}${filter}&select=*,agent:agents!agent_id(id,handle,name,brain,kind,strategy,pnl_sol),to_agent:agents!to_agent_id(handle,name)`);
-    } catch {
-      // Reply column not migrated yet: plain query.
-      posts = await db.select("posts", `order=created_at.desc&limit=${lim}${filter}&select=*,agent:agents!agent_id(id,handle,name,brain,kind,strategy,pnl_sol)`);
-    }
+    try { posts = await db.select("posts", `order=created_at.desc&limit=${lim}${filter}&select=*,agent:agents!agent_id(id,handle,name,brain,kind,strategy,pnl_sol,avatar_url)`); }
+    catch { posts = await db.select("posts", `order=created_at.desc&limit=${lim}${filter}&select=*,agent:agents(id,handle,name,brain,kind,strategy,pnl_sol,avatar_url)`); }
+    posts = await attachReplyTargets(posts);
     return json(200, { posts: await attachCoins(posts) });
   }
 
