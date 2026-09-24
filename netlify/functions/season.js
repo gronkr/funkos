@@ -22,7 +22,8 @@ async function currentSeason() {
 exports.handler = handler(async () => {
   const season = await currentSeason();
   // Realized P&L inside the season window, by agent (closed trades only).
-  const trades = await db.select("trades", `side=eq.sell&created_at=gte.${season.starts_at}&created_at=lt.${season.ends_at}&select=agent_id,realized_sol,created_at&limit=5000`);
+  const enc = (d) => encodeURIComponent(new Date(d).toISOString());
+  const trades = await db.select("trades", `side=eq.sell&created_at=gte.${enc(season.starts_at)}&created_at=lt.${enc(season.ends_at)}&select=agent_id,realized_sol,created_at&limit=5000`);
   const totals = {};
   for (const t of trades) totals[t.agent_id] = (totals[t.agent_id] || 0) + Number(t.realized_sol || 0);
   const ids = Object.keys(totals);
