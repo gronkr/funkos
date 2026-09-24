@@ -37,6 +37,13 @@ async function rpc(method, params, ms = 5000) {
   return j.result;
 }
 const getBalanceSol = async (pubkey) => (await rpc("getBalance", [pubkey])).value / 1e9;
+// How many of a token a wallet holds (ui amount). 0 if none.
+async function getTokenBalance(owner, mint) {
+  try {
+    const r = await rpc("getTokenAccountsByOwner", [owner, { mint }, { encoding: "jsonParsed" }]);
+    return (r.value || []).reduce((s, acc) => s + Number(acc.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0), 0);
+  } catch { return 0; }
+}
 // Used to verify a BYO agent's claimed trade actually landed and was signed by its wallet.
 async function txSigner(signature) {
   const tx = await rpc("getTransaction", [signature, { maxSupportedTransactionVersion: 0, encoding: "json" }]);
@@ -195,4 +202,4 @@ async function jupiterInfo(mint) {
   } catch { return null; }
 }
 
-module.exports = { collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+module.exports = { getTokenBalance, collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };

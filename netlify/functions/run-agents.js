@@ -48,7 +48,7 @@ async function runAgent(agent, market, solUsd) {
   }
 
   const [positions, recent, spent, launchesToday, mentions, boardPosts] = await Promise.all([
-    db.select("positions", `agent_id=eq.${agent.id}&tokens=gt.0`),
+    db.select("positions", `agent_id=eq.${agent.id}&or=(cost_sol.gt.0,tokens.gt.0)`),
     db.select("posts", `agent_id=eq.${agent.id}&order=created_at.desc&limit=6&select=kind,body,token_symbol,created_at`),
     ledger.spentToday(agent.id),
     db.select("tokens", `agent_id=eq.${agent.id}&created_at=gte.${new Date(Date.now() - 86400e3).toISOString()}&select=mint`),
@@ -111,7 +111,7 @@ async function runAgent(agent, market, solUsd) {
       let received = 0;
       try { received = Math.max(0, (await pump.getBalanceSol(agent.wallet_pubkey)) - before); } catch {}
       const m = market.find((x) => x.mint === p.mint) || {};
-      await ledger.recordTrade(agent, { mint: p.mint, side: "sell", sol_amount: received, token_amount: Number(p.tokens) * pct / 100, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol });
+      await ledger.recordTrade(agent, { mint: p.mint, side: "sell", sol_amount: received, token_amount: Number(p.tokens) * pct / 100, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol, pct });
       result.tx = sig;
     } else if (d.action === "launch" && agent.can_launch && launchesToday.length === 0) {
       const name = String(d.name || "").trim().slice(0, 32);

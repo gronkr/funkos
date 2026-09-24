@@ -28,7 +28,7 @@ async function attachCoins(rows, key = "mint") {
 }
 
 // Record a trade for an agent, keep its position and realized P&L in sync, and post it to the feed.
-async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, reasoning, token_name, token_symbol }) {
+async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, reasoning, token_name, token_symbol, pct }) {
   const sol = Number(sol_amount) || 0;
   const tokens = Number(token_amount) || 0;
   const known = await coinMeta(mint);
@@ -37,16 +37,19 @@ async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, re
   let realized = 0;
 
   if (side === "buy") {
-    if (pos) await db.update("positions", `id=eq.${pos.id}`, { tokens: Number(pos.tokens) + tokens, cost_sol: Number(pos.cost_sol) + sol });
-    else await db.insert("positions", { agent_id: agent.id, mint, tokens, cost_sol: sol });
-  } else if (side === "sell" && pos && Number(pos.tokens) > 0) {
-    const frac = tokens > 0 ? Math.min(1, tokens / Number(pos.tokens)) : 1;
+    // Lightning doesn't report fills, so read the real token balance from the wallet (best effort).
+    let held = tokens;
+    if (!held && agent.wallet_pubkey) { await new Promise((r) => setTimeout(r, 2000)); held = await pump.getTokenBalance(agent.wallet_pubkey, mint); }
+    if (pos) await db.update("positions", `id=eq.${pos.id}`, { tokens: held || Number(pos.tokens) + tokens, cost_sol: Number(pos.cost_sol) + sol });
+    else await db.insert("positions", { agent_id: agent.id, mint, tokens: held, cost_sol: sol });
+  } else if (side === "sell" && pos && (Number(pos.cost_sol) > 0 || Number(pos.tokens) > 0)) {
+    // Fraction closed: explicit pct wins; else token ratio if we know it; else treat as a full close.
+    const frac = pct ? Math.min(1, Number(pct) / 100) : tokens > 0 && Number(pos.tokens) > 0 ? Math.min(1, tokens / Number(pos.tokens)) : 1;
     const costOut = Number(pos.cost_sol) * frac;
     realized = sol - costOut;
-    await db.update("positions", `id=eq.${pos.id}`, {
-      tokens: Math.max(0, Number(pos.tokens) - (tokens > 0 ? tokens : Number(pos.tokens))),
-      cost_sol: Math.max(0, Number(pos.cost_sol) - costOut),
-    });
+    let left = 0;
+    if (frac < 1 && agent.wallet_pubkey) { await new Promise((r) => setTimeout(r, 2000)); left = await pump.getTokenBalance(agent.wallet_pubkey, mint); }
+    await db.update("positions", `id=eq.${pos.id}`, { tokens: frac < 1 ? left || Number(pos.tokens) * (1 - frac) : 0, cost_sol: frac < 1 ? Math.max(0, Number(pos.cost_sol) - costOut) : 0 });
   }
 
   const trade = await db.insert("trades", { agent_id: agent.id, mint, side, sol_amount: sol, token_amount: tokens, tx, reasoning: reasoning || null, realized_sol: realized });
@@ -62,7 +65,7 @@ async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, re
     mint, token_name: token_name || null, token_symbol: token_symbol || null, side, sol_amount: sol, tx,
   });
   // Copy trading: followers mirror this trade from their own hosted wallets (best effort, never blocks the leader).
-  mirrorToCopies(agent, trade, { side, sol, pct: side === "sell" && pos && Number(pos.tokens) > 0 ? Math.min(100, Math.round((tokens / Number(pos.tokens)) * 100)) || 100 : 100 }).catch((e) => console.warn("mirror failed", e.message));
+  mirrorToCopies(agent, trade, { side, sol, pct: side === "sell" ? Math.max(1, Math.min(100, Number(pct) || 100)) : 100 }).catch((e) => console.warn("mirror failed", e.message));
   return { trade, realized };
 }
 

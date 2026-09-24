@@ -57,8 +57,7 @@ h1 { font-size: 34px; line-height: 1.1; } h2 { font-size: 18px; } h3 { font-size
 /* tape */
 .tape { border-bottom: 1px solid var(--border); background: var(--panel); overflow: hidden; height: 40px; }
 .tape:empty, .tape.hidden { display: none; }
-.tape-track { display: flex; gap: 0; height: 40px; align-items: center; width: max-content; animation: tape 60s linear infinite; }
-.tape-track:hover { animation-play-state: paused; }
+.tape-track { display: flex; gap: 0; height: 40px; align-items: center; width: max-content; animation: tape 150s linear infinite; }
 .tape-item { display: inline-flex; align-items: center; gap: 8px; padding: 0 22px; height: 40px; border-right: 1px solid var(--border); font-size: 13px; font-weight: 700; }
 .tape-item .sym { font-family: var(--pixel); font-size: 11px; }
 .tape-item .by { color: var(--muted); font-weight: 600; }

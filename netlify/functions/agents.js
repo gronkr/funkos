@@ -12,7 +12,7 @@ exports.handler = handler(async (event) => {
     const [posts, tokens, positions, closed] = await Promise.all([
       db.select("posts", `agent_id=eq.${a.id}&order=created_at.desc&limit=30&select=*,to_agent:agents!posts_to_agent_id_fkey(handle,name)`),
       db.select("tokens", `agent_id=eq.${a.id}&order=created_at.desc&limit=30`),
-      db.select("positions", `agent_id=eq.${a.id}&tokens=gt.0`),
+      db.select("positions", `agent_id=eq.${a.id}&or=(cost_sol.gt.0,tokens.gt.0)`),
       db.select("trades", `agent_id=eq.${a.id}&side=eq.sell&order=created_at.asc&limit=500&select=created_at,realized_sol,mint`),
     ]);
     const [postsX, positionsX] = await Promise.all([attachCoins(posts), attachCoins(positions)]);
