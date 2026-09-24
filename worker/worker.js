@@ -1,4 +1,4 @@
-// funkos worker v5 (replies on any action; sell proceeds read from chain; repairs zero-SOL sells on start)
+// funkos worker v6 (buys confirmed on-chain; phantom positions cleared; mcap fallbacks; replies)
 // funkos worker: the always-on brain loop. Runs on Railway/Render/any VPS: `node worker/worker.js`
 // Same code the Netlify function uses, minus the 10-second limit, so agents can think every minute and launches can generate images.
 //
@@ -60,7 +60,7 @@ async function repairZeroSells() {
 
 async function main() {
   try { await repairZeroSells(); } catch (e) { console.error("repair failed:", e.message); }
-  console.log(`funkos worker v5 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
+  console.log(`funkos worker v6 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
   for (;;) {
     try { await tick(); } catch (e) { console.error("tick failed:", e.message); }
     await new Promise((r) => setTimeout(r, LOOP_MS));

@@ -1,4 +1,4 @@
-// funkos worker v5 (replies on any action; sell proceeds from chain; auto-exits)
+// funkos worker v6 (buys confirmed on-chain; phantom positions cleared; mcap fallbacks; replies)
 const db = require("./lib/db");
 const pump = require("./lib/pump");
 const ledger = require("./lib/ledger");
@@ -122,6 +122,13 @@ async function runAgent(agent, marketIn, solUsd) {
     const why = due.pnl_pct != null && due.pnl_pct >= tp ? `up ${due.pnl_pct}%, taking profit` : due.pnl_pct != null && due.pnl_pct <= -sl ? `down ${Math.abs(due.pnl_pct)}%, cutting it` : `held ${due.held_min} min, time's up`;
     const m = market.find((x) => x.mint === due.mint) || {};
     let result = { handle: agent.handle, action: "auto-sell", mint: due.mint, why };
+    const heldNow = await pump.getTokenBalance(agent.wallet_pubkey, due.mint);
+    if (!(heldNow > 0)) {
+      // Phantom position (buy never landed or already sold elsewhere): clear it silently and move on.
+      await db.update("positions", `id=eq.${due.id}`, { tokens: 0, cost_sol: 0 }).catch(() => {});
+      await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance });
+      return { ...result, action: "cleared-phantom" };
+    }
     try {
       const sig = await pump.trade(agent.pp_api_key, { action: "sell", mint: due.mint, amount: "100%", denominatedInSol: false });
       // What the sell paid, from the confirmed tx (a balance check right after sending reads 0).
@@ -132,7 +139,7 @@ async function runAgent(agent, marketIn, solUsd) {
     } catch (e) {
       result.error = e.message;
       // Sell failed (nothing in the wallet, PumpPortal error): zero the position so it stops blocking, and say so.
-      if (/insufficient|no token|0 tokens|not enough/i.test(e.message)) await db.update("positions", `id=eq.${due.id}`, { tokens: 0, cost_sol: 0 }).catch(() => {});
+      if (/insufficient|no token|0 tokens|not enough|could not find account|token account/i.test(e.message)) await db.update("positions", `id=eq.${due.id}`, { tokens: 0, cost_sol: 0 }).catch(() => {});
       await db.insert("posts", { agent_id: agent.id, kind: "note", body: `Tried to close $${m.symbol || due.mint.slice(0, 6)} (${why}) but the sell failed: ${e.message.slice(0, 120)}` });
     }
     await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance });
@@ -171,12 +178,16 @@ async function runAgent(agent, marketIn, solUsd) {
       const sol = Math.min(Number(d.sol_amount) || 0, maxBuy);
       if (sol < 0.005) throw new Error("amount too small");
       const sig = await pump.trade(agent.pp_api_key, { action: "buy", mint: m.mint, amount: sol, denominatedInSol: true });
-      // Token amount filled isn't returned by Lightning; we track cost in SOL and read tokens from the wallet lazily.
+      // PumpPortal returns a signature even if the tx then fails on-chain: only record the buy if it landed.
+      const ok = await pump.txOk(sig);
+      if (ok === false) throw new Error("buy failed on-chain (slippage or the coin moved), nothing bought");
       await ledger.recordTrade(agent, { mint: m.mint, side: "buy", sol_amount: sol, token_amount: 0, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol, to_agent_id: toId });
       result.tx = sig;
     } else if (d.action === "sell") {
       const p = positions.find((x) => x.mint === d.mint);
       if (!p) throw new Error("no position");
+      const held = await pump.getTokenBalance(agent.wallet_pubkey, p.mint);
+      if (!(held > 0)) { await db.update("positions", `id=eq.${p.id}`, { tokens: 0, cost_sol: 0 }); throw new Error(`wallet holds no $${market.find((x) => x.mint === p.mint)?.symbol || "tokens"} (the buy never landed); cleared the position`); }
       const pct = Math.max(1, Math.min(100, Number(d.percent) || 100));
       const before = balance;
       const sig = await pump.trade(agent.pp_api_key, { action: "sell", mint: p.mint, amount: `${pct}%`, denominatedInSol: false });

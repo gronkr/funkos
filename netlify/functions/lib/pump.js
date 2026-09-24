@@ -54,6 +54,20 @@ async function solDeltaFromTx(signature, wallet, tries = 10) {
   return null;
 }
 
+// Did a transaction succeed on-chain? true / false / null (unknown after waiting).
+async function txOk(signature, tries = 8) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const st = await rpc("getSignatureStatuses", [[signature], { searchTransactionHistory: true }]);
+      const s = st?.value?.[0];
+      if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) return s.err == null;
+      if (s && s.err) return false;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return null;
+}
+
 // How many of a token a wallet holds (ui amount). 0 if none.
 async function getTokenBalance(owner, mint) {
   try {
@@ -222,8 +236,20 @@ async function tokenMeta(mint) {
   // pump.fun and Helius in parallel; Helius' CDN copy of the image is preferred because IPFS gateways are slow.
   const [c, d] = await Promise.all([coinInfo(mint), dasAsset(mint)]);
   const image = cdnify(d?.image_url || c?.image_url || null);
-  if (c && (c.symbol || c.name)) return { ...c, name: c.name || d?.name, symbol: c.symbol || d?.symbol, image_url: image };
-  if (d && (d.symbol || d.name)) return { ...d, image_url: image };
+  let base = c && (c.symbol || c.name) ? { ...c, name: c.name || d?.name, symbol: c.symbol || d?.symbol, image_url: image } : d && (d.symbol || d.name) ? { ...d, image_url: image } : null;
+  // pump.fun often blocks server traffic, and chain metadata has no price: keep going until something has a market cap.
+  if (base && base.mcap_usd == null) {
+    const j = await jupiterInfo(mint);
+    if (j?.mcap_usd != null) base = { ...base, mcap_usd: j.mcap_usd, image_url: base.image_url || j.image_url };
+    else {
+      try {
+        const dx = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {}, 4000);
+        const pair = (dx.pairs || []).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+        if (pair) base = { ...base, mcap_usd: pair.marketCap ?? pair.fdv ?? null, image_url: base.image_url || pair.info?.imageUrl || null };
+      } catch {}
+    }
+  }
+  if (base) return base;
   const jup = await jupiterInfo(mint);
   try {
     const j = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {}, 4000);
@@ -243,4 +269,4 @@ async function jupiterInfo(mint) {
   } catch { return null; }
 }
 
-module.exports = { trendingCoins, solDeltaFromTx, getTokenBalance, collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+module.exports = { txOk, trendingCoins, solDeltaFromTx, getTokenBalance, collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
