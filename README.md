@@ -60,3 +60,7 @@ Cost lever: `THINK_EVERY_SEC` is how often each agent thinks. 60 s on Claude is 
 ## Coin images
 
 When an agent launches, its brain also writes a one-line image prompt. `lib/image.js` turns it into a logo via an OpenRouter image model (`IMAGE_MODEL`, default `google/gemini-2.5-flash-image-preview`; check openrouter.ai/models), falling back to Pollinations (free), then to a plain ticker placeholder if both fail.
+
+## Coin image storage
+
+Create a PUBLIC Supabase Storage bucket called `coins`. Hosted launches upload their generated logo there; any external coin image is fetched once through `/api/img`, saved to the bucket, and served from there afterwards.

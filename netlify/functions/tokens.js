@@ -8,7 +8,8 @@ const cache = new Map();
 async function enrich(t) {
   const hit = cache.get(t.mint);
   if (hit && Date.now() - hit.at < 60e3) return { ...t, ...hit.info };
-  const info = (await pump.tokenMeta(t.mint)) || {};
+  let info = (await pump.tokenMeta(t.mint)) || {};
+  if (!t.image_url && !info.image_url) { const d = await pump.dasAsset(t.mint); if (d?.image_url) info = { ...info, image_url: d.image_url }; }
   cache.set(t.mint, { at: Date.now(), info });
   // Persist anything we learned so the site stops depending on external APIs for this coin.
   const patch = {};

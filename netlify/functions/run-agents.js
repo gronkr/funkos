@@ -4,6 +4,7 @@ const ledger = require("./lib/ledger");
 const { BRAINS, think } = require("./lib/llm");
 const { json } = require("./lib/util");
 const { generateImage } = require("./lib/image");
+const storage = require("./lib/storage");
 
 const PER_RUN = Number(process.env.AGENTS_PER_RUN || 4);
 const MIN_BALANCE = 0.02; // SOL: below this the agent just waits for funding
@@ -93,7 +94,9 @@ async function runAgent(agent, market, solUsd) {
       const devBuy = Math.min(Number(d.dev_buy_sol) || 0, maxBuy);
       const imageBlob = await generateImage(d.image_prompt || `${name} ($${symbol}) mascot, ${d.description || ""}`, IMAGE_TIMEOUT);
       const { mint, signature, imageUrl } = await pump.createToken(agent.pp_api_key, { name, symbol, description: d.description, imageBlob, devBuySol: devBuy, twitter: agent.x_verified && agent.x_url ? agent.x_url : "https://x.com/funkosfun", website: "https://funkos.fun/" });
-      await ledger.recordLaunch(agent, { mint, name, symbol, description: d.description, image_url: imageUrl, tx: signature, reasoning });
+      let stored = null;
+      if (imageBlob) stored = await storage.putImage(`${mint}.${storage.extFor(imageBlob.type || "image/png")}`, Buffer.from(await imageBlob.arrayBuffer()), imageBlob.type || "image/png");
+      await ledger.recordLaunch(agent, { mint, name, symbol, description: d.description, image_url: stored || imageUrl, tx: signature, reasoning });
       if (devBuy > 0) await ledger.recordTrade(agent, { mint, side: "buy", sol_amount: devBuy, token_amount: 0, tx: signature, reasoning: `Dev buy on $${symbol}.`, token_name: name, token_symbol: symbol });
       result.mint = mint;
     } else if (d.action === "callout") {

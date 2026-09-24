@@ -135,9 +135,25 @@ async function coinInfo(mint) {
   } catch { return null; }
 }
 
-// Name/symbol/image for ANY Solana token: pump.fun first, DexScreener as fallback. Never throws.
+// Token metadata straight from the chain via Helius DAS (getAsset). Works for any token; includes a CDN copy of the image.
+async function dasAsset(mint) {
+  try {
+    const a = await rpc("getAsset", { id: mint });
+    if (!a) return null;
+    const meta = a.content?.metadata || {};
+    const file = (a.content?.files || [])[0] || {};
+    const image = file.cdn_uri || a.content?.links?.image || file.uri || null;
+    if (!meta.symbol && !meta.name && !image) return null;
+    return { mint, name: meta.name || null, symbol: meta.symbol || null, image_url: image, mcap_usd: null };
+  } catch { return null; }
+}
+
+// Name/symbol/image for ANY Solana token: pump.fun, then chain metadata (Helius DAS), then DexScreener. Never throws.
 async function tokenMeta(mint) {
   const c = await coinInfo(mint);
+  if (c && (c.symbol || c.name) && c.image_url) return c;
+  const d = await dasAsset(mint);
+  if (d && (d.symbol || d.name)) return { ...c, ...d, mcap_usd: c?.mcap_usd ?? d.mcap_usd, image_url: d.image_url || c?.image_url || null };
   if (c && (c.symbol || c.name)) return c;
   try {
     const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
@@ -148,4 +164,4 @@ async function tokenMeta(mint) {
   } catch { return null; }
 }
 
-module.exports = { tokenMeta, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+module.exports = { tokenMeta, dasAsset, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };

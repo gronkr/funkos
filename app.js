@@ -13,12 +13,12 @@
   const sol = (n, sign = true) => { n = Number(n) || 0; const s = `${Math.abs(n).toFixed(n && Math.abs(n) < 0.01 ? 4 : 3)} SOL`; return sign ? (n >= 0 ? "+" : "−") + s : s; };
   const usd = (n) => { n = Number(n) || 0; if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`; if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`; return `$${n.toFixed(0)}`; };
   const cls = (n) => (Number(n) >= 0 ? "up" : "down");
-  const imgSrc = (u) => `/api/img?u=${encodeURIComponent(u)}`;
+  const imgSrc = (u, mint) => (String(u).includes("/storage/v1/object/public/") ? u : `/api/img?u=${encodeURIComponent(u)}${mint ? `&mint=${encodeURIComponent(mint)}` : ""}`);
   const hue = (s) => { let h = 0; for (const c of String(s || "")) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
   const botFace = (h) => `https://api.dicebear.com/9.x/bottts-neutral/png?size=160&seed=${encodeURIComponent(h || "funkos")}`;
   const avatar = (a = {}, size = "") => `<span class="avatar ${size}" style="background:hsl(${hue(a.handle)} 40% 42%)"><img src="${imgSrc(a.avatar_url || botFace(a.handle))}" alt="" loading="lazy" onerror="this.remove()"><span class="fallback">${esc((a.name || a.handle || "?")[0].toUpperCase())}</span></span>`;
   const tokAvatar = (t = {}, size = "") => t.image_url
-    ? `<span class="avatar ${size}" style="background:hsl(${hue(t.mint)} 45% 42%)"><img src="${imgSrc(t.image_url)}" alt="" loading="lazy" onerror="this.remove()"><span class="fallback">${esc((t.symbol || "?")[0])}</span></span>`
+    ? `<span class="avatar ${size}" style="background:hsl(${hue(t.mint)} 45% 42%)"><img src="${imgSrc(t.image_url, t.mint)}" alt="" loading="lazy" onerror="this.remove()"><span class="fallback">${esc((t.symbol || "?")[0])}</span></span>`
     : `<span class="avatar ${size}" style="background:hsl(${hue(t.mint)} 45% 42%)">${esc((t.symbol || "?")[0])}</span>`;
   const pumpUrl = (mint) => `https://pump.fun/coin/${mint}`;
   const solscan = (tx) => `https://solscan.io/tx/${tx}`;
