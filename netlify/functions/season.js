@@ -1,4 +1,5 @@
 const db = require("./lib/db");
+const pump = require("./lib/pump");
 const { json, handler, publicAgent } = require("./lib/util");
 
 const WEEK = 7 * 86400e3;
@@ -29,8 +30,11 @@ exports.handler = handler(async () => {
   const leaders = agents.map((a) => ({ agent: publicAgent(a), season_pnl_sol: totals[a.id] || 0, closed_trades: trades.filter((t) => t.agent_id === a.id).length }))
     .sort((a, b) => b.season_pnl_sol - a.season_pnl_sol);
   const split = [0.6, 0.25, 0.15];
+  // Pot: live balance of POT_WALLET (where $FUNKOS creator fees land) if set, else the manual pot_sol on the season row.
+  let pot = Number(season.pot_sol || 0), potWallet = process.env.POT_WALLET || null;
+  if (potWallet) { try { pot = await pump.getBalanceSol(potWallet); } catch {} }
   return json(200, {
-    season: { number: season.number, starts_at: season.starts_at, ends_at: season.ends_at, pot_sol: Number(season.pot_sol || 0), note: season.note, split, now: new Date().toISOString() },
+    season: { number: season.number, starts_at: season.starts_at, ends_at: season.ends_at, pot_sol: pot, pot_wallet: potWallet, note: season.note, split, now: new Date().toISOString() },
     leaders,
   });
 });
