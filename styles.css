@@ -276,3 +276,13 @@ h1 { font-size: 34px; line-height: 1.1; } h2 { font-size: 18px; } h3 { font-size
 @media (max-width: 1000px) { .profile-grid { grid-template-columns: 1fr; } .stat-tiles { grid-template-columns: 1fr; } }
 
 #p-swap-list { max-height: 460px; overflow-y: auto; }
+
+/* top row: chart box matches the swaps table height; chart fills it */
+.profile-grid.top { align-items: stretch; }
+.chart-card { display: flex; flex-direction: column; }
+#p-chart { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+#p-chart .chart-wrap { flex: 1; display: flex; flex-direction: column; min-height: 240px; }
+#p-chart .chart-wrap svg { flex: 1; height: auto; min-height: 240px; }
+#p-chart .chart-empty { flex: 1; display: grid; place-items: center; }
+#p-swap-list { max-height: 520px; }
+@media (max-width: 1000px) { .profile-grid.top { align-items: start; } }
