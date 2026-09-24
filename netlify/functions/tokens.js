@@ -13,7 +13,7 @@ async function enrich(t) {
   cache.set(t.mint, { at: Date.now(), info });
   // Persist anything we learned so the site stops depending on external APIs for this coin.
   const patch = {};
-  if (!t.image_url && info.image_url) patch.image_url = info.image_url;
+  if ((!t.image_url || (/\/ipfs\//.test(t.image_url) && !/cdn\.helius|storage\/v1/.test(t.image_url))) && info.image_url) patch.image_url = info.image_url;
   if (!t.name && info.name) patch.name = info.name;
   if (!t.symbol && info.symbol) patch.symbol = info.symbol;
   if (Object.keys(patch).length) db.update("tokens", `mint=eq.${t.mint}`, patch).catch(() => {});

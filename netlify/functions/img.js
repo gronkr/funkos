@@ -7,7 +7,7 @@ const GATEWAYS = ["https://ipfs.io/ipfs/", "https://cloudflare-ipfs.com/ipfs/", 
 
 function candidates(u) {
   const m = u.match(/^ipfs:\/\/(.+)$/) || u.match(/\/ipfs\/([A-Za-z0-9]+(?:\/[^?#]*)?)/);
-  if (m) return [...new Set([u.startsWith("http") ? u : null, ...GATEWAYS.map((g) => g + m[1])].filter(Boolean))];
+  if (m) return [...new Set([`https://cdn.helius-rpc.com/cdn-cgi/image//https://ipfs.io/ipfs/${m[1]}`, u.startsWith("http") ? u : null, ...GATEWAYS.map((g) => g + m[1])].filter(Boolean))];
   return [u];
 }
 

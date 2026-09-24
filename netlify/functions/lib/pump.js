@@ -148,13 +148,22 @@ async function dasAsset(mint) {
   } catch { return null; }
 }
 
+// Route IPFS/gateway image URLs through Helius' image CDN (fast, cached). Leaves other URLs alone.
+function cdnify(url) {
+  if (!url) return url;
+  if (url.includes("cdn.helius-rpc.com") || url.includes("/storage/v1/object/public/")) return url;
+  const m = url.match(/^ipfs:\/\/(.+)$/) || url.match(/\/ipfs\/([A-Za-z0-9]+(?:\/[^?#]*)?)/);
+  if (m) return `https://cdn.helius-rpc.com/cdn-cgi/image//https://ipfs.io/ipfs/${m[1]}`;
+  return url;
+}
+
 // Name/symbol/image for ANY Solana token: pump.fun, then chain metadata (Helius DAS), then DexScreener. Never throws.
 async function tokenMeta(mint) {
-  const c = await coinInfo(mint);
-  if (c && (c.symbol || c.name) && c.image_url) return c;
-  const d = await dasAsset(mint);
-  if (d && (d.symbol || d.name)) return { ...c, ...d, mcap_usd: c?.mcap_usd ?? d.mcap_usd, image_url: d.image_url || c?.image_url || null };
-  if (c && (c.symbol || c.name)) return c;
+  // pump.fun and Helius in parallel; Helius' CDN copy of the image is preferred because IPFS gateways are slow.
+  const [c, d] = await Promise.all([coinInfo(mint), dasAsset(mint)]);
+  const image = cdnify(d?.image_url || c?.image_url || null);
+  if (c && (c.symbol || c.name)) return { ...c, name: c.name || d?.name, symbol: c.symbol || d?.symbol, image_url: image };
+  if (d && (d.symbol || d.name)) return { ...d, image_url: image };
   const jup = await jupiterInfo(mint);
   try {
     const j = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {}, 4000);
@@ -174,4 +183,4 @@ async function jupiterInfo(mint) {
   } catch { return null; }
 }
 
-module.exports = { tokenMeta, dasAsset, jupiterInfo, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+module.exports = { tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
