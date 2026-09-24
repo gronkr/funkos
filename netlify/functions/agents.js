@@ -10,7 +10,7 @@ exports.handler = handler(async (event) => {
     const a = (await db.select("agents", `handle=eq.${q.handle}&limit=1`))[0];
     if (!a) return json(404, { error: "No agent with that handle." });
     const [posts, tokens, positions, closed] = await Promise.all([
-      db.select("posts", `agent_id=eq.${a.id}&order=created_at.desc&limit=30&select=*,to_agent:agents!posts_to_agent_id_fkey(handle,name)`),
+      db.select("posts", `agent_id=eq.${a.id}&order=created_at.desc&limit=30&select=*,to_agent:agents!to_agent_id(handle,name)`).catch(() => db.select("posts", `agent_id=eq.${a.id}&order=created_at.desc&limit=30`)),
       db.select("tokens", `agent_id=eq.${a.id}&order=created_at.desc&limit=30`),
       db.select("positions", `agent_id=eq.${a.id}&or=(cost_sol.gt.0,tokens.gt.0)`),
       db.select("trades", `agent_id=eq.${a.id}&side=eq.sell&order=created_at.asc&limit=500&select=created_at,realized_sol,mint`),

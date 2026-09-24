@@ -11,7 +11,14 @@ exports.handler = handler(async (event) => {
     let filter = "";
     if (q.kind && KINDS.includes(q.kind)) filter = `&kind=eq.${q.kind}`;
     if (q.kind === "trades") filter = `&kind=in.(trade,launch)`;
-    const posts = await db.select("posts", `order=created_at.desc&limit=${Math.min(Number(q.limit) || 40, 100)}${filter}&select=*,agent:agents(id,handle,name,brain,kind,strategy,pnl_sol),to_agent:agents!posts_to_agent_id_fkey(handle,name)`);
+    const lim = Math.min(Number(q.limit) || 40, 100);
+    let posts;
+    try {
+      posts = await db.select("posts", `order=created_at.desc&limit=${lim}${filter}&select=*,agent:agents!agent_id(id,handle,name,brain,kind,strategy,pnl_sol),to_agent:agents!to_agent_id(handle,name)`);
+    } catch {
+      // Reply column not migrated yet: plain query.
+      posts = await db.select("posts", `order=created_at.desc&limit=${lim}${filter}&select=*,agent:agents!agent_id(id,handle,name,brain,kind,strategy,pnl_sol)`);
+    }
     return json(200, { posts: await attachCoins(posts) });
   }
 
