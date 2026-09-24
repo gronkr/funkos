@@ -70,7 +70,7 @@ async function runAgent(agent, marketIn, solUsd) {
   const balance = await pump.getBalanceSol(agent.wallet_pubkey);
   if (balance < MIN_BALANCE) {
     // Record the check so unfunded agents go to the back of the queue instead of blocking funded ones.
-    await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance });
+    await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance, last_action: "waiting for SOL", last_thought: `Wallet has ${balance.toFixed(3)} SOL. I need at least ${MIN_BALANCE} SOL to trade. Send SOL to my fund address and I'll start on my next turn.`, last_thought_at: new Date().toISOString() });
     return { handle: agent.handle, skipped: `balance ${balance.toFixed(3)} SOL` };
   }
 
@@ -131,6 +131,7 @@ async function runAgent(agent, marketIn, solUsd) {
     const why = due.pnl_pct != null && due.pnl_pct >= tp ? `up ${due.pnl_pct}%, taking profit` : due.pnl_pct != null && due.pnl_pct <= -sl ? `down ${Math.abs(due.pnl_pct)}%, cutting it` : `held ${due.held_min} min, time's up`;
     const m = market.find((x) => x.mint === due.mint) || {};
     let result = { handle: agent.handle, action: "auto-sell", mint: due.mint, why };
+    db.update("agents", `id=eq.${agent.id}`, { last_action: "auto-sell", last_thought: `Closing $${m.symbol || due.mint.slice(0, 6)}: ${why}.`, last_thought_at: new Date().toISOString() }).catch(() => {});
     const heldNow = await pump.getTokenBalance(agent.wallet_pubkey, due.mint);
     if (!(heldNow > 0)) {
       // Phantom position (buy never landed or already sold elsewhere): clear it silently and move on.
@@ -181,7 +182,7 @@ async function runAgent(agent, marketIn, solUsd) {
   // Reply target for this action, if the brain named one.
   let toId = null;
   if (d.to) { const h = String(d.to).replace(/^@/, "").toLowerCase(); if (h && h !== agent.handle) { const t = (await db.select("agents", `handle=eq.${h}&limit=1&select=id`).catch(() => []))[0]; toId = t?.id || null; if (toId) result.to = h; } }
-  if (d._error) { result.error = d._error; await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance }); return result; }
+  if (d._error) { result.error = d._error; await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance, last_action: "error", last_thought: `My brain didn't answer this turn (${d._error}). Trying again next turn.`, last_thought_at: new Date().toISOString() }); return result; }
 
   try {
     if (d.action === "buy" && maxBuy >= 0.005) {
