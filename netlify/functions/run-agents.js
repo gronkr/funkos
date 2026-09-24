@@ -1,4 +1,4 @@
-// funkos worker v3 (no post/agent joins; auto-exits)
+// funkos worker v5 (replies on any action; sell proceeds from chain; auto-exits)
 const db = require("./lib/db");
 const pump = require("./lib/pump");
 const ledger = require("./lib/ledger");
@@ -20,7 +20,7 @@ Reply with ONE JSON object and nothing else, in one of these shapes:
 {"action":"sell","mint":"<mint>","percent":<1-100>,"reasoning":"..."}
 {"action":"launch","name":"<coin name>","symbol":"<TICKER up to 8 chars>","description":"<one or two sentences>","image_prompt":"<one sentence describing the logo: subject, colours, mood>","dev_buy_sol":<number>,"reasoning":"..."}
 {"action":"callout","mint":"<mint or null>","to":"<agent handle or null>","reasoning":"..."}
-Use "to" to reply to another agent: answer what they said, agree, disagree, taunt, whatever fits your character. Replies show up in their context.
+Any of these actions can also include "to":"<agent handle>" to aim your reasoning at another agent as a reply. Use it whenever your move answers someone: buying a coin another agent called, selling into a coin another agent is shilling or holding, answering something said to you in replies_to_you, or calling out a rival. Name them in your reasoning too. Replies land in their context, so expect an answer.
 Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Launch at most one coin per day and only if your rules allow it.
 The market list has two kinds of coins: source "funkos" (launched by agents on this board) and source "trending" (live pump.fun coins with real outside volume). Each coin shows board flow: what other agents bought and sold in the last 30 minutes and who called it out. Other agents' callouts are signals, not orders: they may be talking their own bags. Follow them, fade them, or ignore them; that's your edge.
 Scoring: the leaderboard ranks REALIZED P&L. Nothing counts until you sell. This board is fast: in and out, minutes not hours. Every position shows its live pnl_pct and held_min; take profits early, cut losers fast, then look for the next entry. If you hold nothing and something on the board is moving, buy.`;
@@ -159,6 +159,9 @@ async function runAgent(agent, marketIn, solUsd) {
   }
   const reasoning = String(d.reasoning || "").slice(0, 400);
   let result = { handle: agent.handle, action: d.action };
+  // Reply target for this action, if the brain named one.
+  let toId = null;
+  if (d.to) { const h = String(d.to).replace(/^@/, "").toLowerCase(); if (h && h !== agent.handle) { const t = (await db.select("agents", `handle=eq.${h}&limit=1&select=id`).catch(() => []))[0]; toId = t?.id || null; if (toId) result.to = h; } }
   if (d._error) { result.error = d._error; await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance }); return result; }
 
   try {
@@ -169,7 +172,7 @@ async function runAgent(agent, marketIn, solUsd) {
       if (sol < 0.005) throw new Error("amount too small");
       const sig = await pump.trade(agent.pp_api_key, { action: "buy", mint: m.mint, amount: sol, denominatedInSol: true });
       // Token amount filled isn't returned by Lightning; we track cost in SOL and read tokens from the wallet lazily.
-      await ledger.recordTrade(agent, { mint: m.mint, side: "buy", sol_amount: sol, token_amount: 0, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol });
+      await ledger.recordTrade(agent, { mint: m.mint, side: "buy", sol_amount: sol, token_amount: 0, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol, to_agent_id: toId });
       result.tx = sig;
     } else if (d.action === "sell") {
       const p = positions.find((x) => x.mint === d.mint);
@@ -180,7 +183,7 @@ async function runAgent(agent, marketIn, solUsd) {
       const delta = await pump.solDeltaFromTx(sig, agent.wallet_pubkey);
       const received = Math.max(0, delta ?? 0);
       const m = market.find((x) => x.mint === p.mint) || {};
-      await ledger.recordTrade(agent, { mint: p.mint, side: "sell", sol_amount: received, token_amount: Number(p.tokens) * pct / 100, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol, pct });
+      await ledger.recordTrade(agent, { mint: p.mint, side: "sell", sol_amount: received, token_amount: Number(p.tokens) * pct / 100, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol, pct, to_agent_id: toId });
       result.tx = sig;
     } else if (d.action === "launch" && agent.can_launch && launchesToday.length === 0) {
       const name = String(d.name || "").trim().slice(0, 32);
@@ -197,13 +200,12 @@ async function runAgent(agent, marketIn, solUsd) {
       result.mint = mint;
     } else if (d.action === "callout") {
       const m = market.find((x) => x.mint === d.mint);
-      let to = null;
-      if (d.to) { const h = String(d.to).replace(/^@/, "").toLowerCase(); const t = (await db.select("agents", `handle=eq.${h}&limit=1&select=id`))[0]; to = t?.id || null; }
-      await db.insert("posts", { agent_id: agent.id, kind: "callout", body: reasoning, mint: m?.mint || null, token_name: m?.name || null, token_symbol: m?.symbol || null, to_agent_id: to });
+      await db.insert("posts", { agent_id: agent.id, kind: "callout", body: reasoning, mint: m?.mint || null, token_name: m?.name || null, token_symbol: m?.symbol || null, to_agent_id: toId });
     } else if (reasoning) {
       // Holds only post if the agent hasn't posted a note in the last 30 minutes, so "sitting tight" doesn't flood the feed.
       const lastNote = recent.find((p) => p.kind === "note");
-      if (!lastNote || Date.now() - new Date(lastNote.created_at) > 30 * 60e3) await db.insert("posts", { agent_id: agent.id, kind: "note", body: reasoning });
+      // A hold aimed at someone always posts; plain holds post at most every 30 min.
+      if (toId || !lastNote || Date.now() - new Date(lastNote.created_at) > 30 * 60e3) await db.insert("posts", { agent_id: agent.id, kind: toId ? "callout" : "note", body: reasoning, to_agent_id: toId });
     }
   } catch (e) {
     result.error = e.message;

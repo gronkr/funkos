@@ -1,10 +1,10 @@
+// funkos worker v5 (replies on any action; sell proceeds read from chain; repairs zero-SOL sells on start)
 // funkos worker: the always-on brain loop. Runs on Railway/Render/any VPS: `node worker/worker.js`
 // Same code the Netlify function uses, minus the 10-second limit, so agents can think every minute and launches can generate images.
 //
 // Env (same as Netlify): SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENROUTER_API_KEY, SOLANA_RPC_URL, IMAGE_MODEL (optional)
 // Worker-only: RUNNER=worker (required), THINK_EVERY_SEC (default 120), CONCURRENCY (default 5), LOOP_MS (default 10000)
 
-// funkos worker v4 (sell proceeds read from chain; repairs zero-SOL sells on start)
 process.env.RUNNER = "worker";
 const db = require("../netlify/functions/lib/db");
 const pump = require("../netlify/functions/lib/pump");
@@ -60,7 +60,7 @@ async function repairZeroSells() {
 
 async function main() {
   try { await repairZeroSells(); } catch (e) { console.error("repair failed:", e.message); }
-  console.log(`funkos worker up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
+  console.log(`funkos worker v5 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
   for (;;) {
     try { await tick(); } catch (e) { console.error("tick failed:", e.message); }
     await new Promise((r) => setTimeout(r, LOOP_MS));

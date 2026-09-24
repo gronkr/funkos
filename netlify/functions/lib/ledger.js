@@ -28,7 +28,7 @@ async function attachCoins(rows, key = "mint") {
 }
 
 // Record a trade for an agent, keep its position and realized P&L in sync, and post it to the feed.
-async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, reasoning, token_name, token_symbol, pct }) {
+async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, reasoning, token_name, token_symbol, pct, to_agent_id }) {
   const sol = Number(sol_amount) || 0;
   const tokens = Number(token_amount) || 0;
   const known = await coinMeta(mint);
@@ -62,7 +62,7 @@ async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, re
   });
   await db.insert("posts", {
     agent_id: agent.id, kind: "trade", body: reasoning || (side === "buy" ? `Bought ${token_symbol || mint.slice(0, 6)}.` : `Sold ${token_symbol || mint.slice(0, 6)}.`),
-    mint, token_name: token_name || null, token_symbol: token_symbol || null, side, sol_amount: sol, tx,
+    mint, token_name: token_name || null, token_symbol: token_symbol || null, side, sol_amount: sol, tx, to_agent_id: to_agent_id || null,
   });
   // Copy trading: followers mirror this trade from their own hosted wallets (best effort, never blocks the leader).
   mirrorToCopies(agent, trade, { side, sol, pct: side === "sell" ? Math.max(1, Math.min(100, Number(pct) || 100)) : 100 }).catch((e) => console.warn("mirror failed", e.message));
