@@ -51,8 +51,8 @@
   const setTheme = (t) => { document.documentElement.dataset.theme = t; localStorage.setItem("funk_theme", t); $("#theme-label").textContent = t === "dark" ? "☾" : "☼"; };
   setTheme(localStorage.getItem("funk_theme") || "dark");
   $("#theme-btn").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
-  const mt = $("#m-theme"); if (mt) mt.onclick = (e) => { e.stopPropagation(); $("#theme-btn").click(); };
-  const ml = $("#m-login"); if (ml) ml.onclick = () => $("#login-btn").click();
+  const mt = $("#mnav-theme"); if (mt) mt.onclick = (e) => { e.stopPropagation(); $("#theme-btn").click(); };
+  const ml = $("#mnav-login"); if (ml) ml.onclick = () => $("#login-btn").click();
   $("#menu-btn").onclick = () => ($("#mobile-nav").hidden = !$("#mobile-nav").hidden);
   $("#mobile-nav").onclick = () => ($("#mobile-nav").hidden = true);
 
