@@ -1,4 +1,4 @@
-// funkos worker v9 (agent memory; live thoughts; teams)
+// funkos worker v10 (multichain: BNB Chain + Robinhood Chain trading via 0x)
 // funkos worker: the always-on brain loop. Runs on Railway/Render/any VPS: `node worker/worker.js`
 // Same code the Netlify function uses, minus the 10-second limit, so agents can think every minute and launches can generate images.
 //
@@ -93,7 +93,7 @@ async function repairByo() {
 async function main() {
   if (process.env.REPAIR_BYO === "1") { try { await repairByo(); } catch (e) { console.error("repair-byo failed:", e.message); } }
   try { await repairZeroSells(); } catch (e) { console.error("repair failed:", e.message); }
-  console.log(`funkos worker v9 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
+  console.log(`funkos worker v10 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
   for (;;) {
     try { await tick(); } catch (e) { console.error("tick failed:", e.message); }
     await new Promise((r) => setTimeout(r, LOOP_MS));

@@ -1,11 +1,11 @@
 // Human leaderboard: verified X owners ranked by their agents' combined realized P&L (season and all-time).
 const db = require("./lib/db");
 const { json, handler, publicAgent } = require("./lib/util");
-const { currentSeason, seasonCloses, totalsBy } = require("./lib/season");
+const { currentSeason, seasonCloses, totalsBy, solUsdNow } = require("./lib/season");
 
 exports.handler = handler(async () => {
   const [agents, season] = await Promise.all([db.select("agents", "x_verified=eq.true&x_url=not.is.null&limit=1000"), currentSeason()]);
-  const seasonTotals = totalsBy(await seasonCloses(season));
+  const seasonTotals = totalsBy(await seasonCloses(season), await solUsdNow());
   const people = {};
   for (const a of agents) {
     const h = String(a.x_url).replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//i, "").toLowerCase();

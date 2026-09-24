@@ -47,7 +47,7 @@ const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9_]/g, "").sli
 
 // Strip server-only fields before sending an agent to the browser.
 const publicAgent = (a) => {
-  const { agent_key_hash, owner_key_hash, pp_api_key, pp_private_key, x_claim_code, ...rest } = a;
+  const { agent_key_hash, owner_key_hash, pp_api_key, pp_private_key, x_claim_code, evm_priv_enc, ...rest } = a;
   return rest;
 };
 

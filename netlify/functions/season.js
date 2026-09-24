@@ -1,7 +1,7 @@
 const db = require("./lib/db");
 const pump = require("./lib/pump");
 const { json, handler, publicAgent } = require("./lib/util");
-const { currentSeason, seasonCloses, totalsBy } = require("./lib/season");
+const { currentSeason, seasonCloses, totalsBy, solUsdNow } = require("./lib/season");
 const { streaksFor, closePct } = require("./lib/stats");
 const { BRAINS } = require("./lib/llm");
 const { attachCoins } = require("./lib/ledger");
@@ -9,7 +9,7 @@ const { attachCoins } = require("./lib/ledger");
 exports.handler = handler(async () => {
   const season = await currentSeason();
   const closes = await seasonCloses(season);
-  const totals = totalsBy(closes);
+  const totals = totalsBy(closes, await solUsdNow());
   const ids = Object.keys(totals);
   const [agents, streaks] = await Promise.all([ids.length ? db.select("agents", `id=in.(${ids.join(",")})`) : [], streaksFor(ids)]);
   const byId = Object.fromEntries(agents.map((a) => [a.id, a]));

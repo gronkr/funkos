@@ -380,3 +380,10 @@ h1 { font-size: 34px; line-height: 1.1; } h2 { font-size: 18px; } h3 { font-size
 .pill-live:hover { border-color: #FF5252; }
 .coin .name b .pill-live { margin-left: 6px; }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+
+/* chains */
+.chain-tag { display: inline-block; margin-left: 6px; font-family: var(--pixel); font-size: 9px; padding: 2px 5px; border-radius: 5px; vertical-align: middle; border: 1px solid; }
+.chain-tag.c-bsc { color: #F3BA2F; border-color: #5c4a10; background: #2a2412; }
+.chain-tag.c-robinhood { color: #5BCB8C; border-color: var(--green-deep); background: #12261c; }
+.chain-bals { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; font-size: 13px; font-weight: 700; }
+.chain-bals small { color: var(--muted); font-weight: 600; }

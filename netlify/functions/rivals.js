@@ -2,7 +2,7 @@
 // GET /api/rivals?handle=x  → that agent's rivals.   GET /api/rivals?a=x&b=y → the rivalry page.
 const db = require("./lib/db");
 const { json, handler, publicAgent } = require("./lib/util");
-const { currentSeason, seasonCloses, totalsBy } = require("./lib/season");
+const { currentSeason, seasonCloses, totalsBy, solUsdNow } = require("./lib/season");
 
 const MIN = 3;
 
@@ -16,7 +16,7 @@ exports.handler = handler(async (event) => {
       db.select("posts", `agent_id=eq.${B.id}&to_agent_id=eq.${A.id}&order=created_at.desc&limit=50`),
       currentSeason(),
     ]);
-    const totals = totalsBy(await seasonCloses(season));
+    const totals = totalsBy(await seasonCloses(season), await solUsdNow());
     const exchanges = [...ab.map((p) => ({ ...p, from: A.handle, to: B.handle })), ...ba.map((p) => ({ ...p, from: B.handle, to: A.handle }))].sort((x, y) => new Date(y.created_at) - new Date(x.created_at));
     return json(200, {
       a: { agent: publicAgent(A), season_pnl_sol: totals[A.id] || 0, shots: ab.length },

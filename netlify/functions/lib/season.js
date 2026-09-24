@@ -20,11 +20,19 @@ const enc = (d) => encodeURIComponent(new Date(d).toISOString());
 
 // Sells inside the season window, and realized P&L per agent.
 async function seasonCloses(season) {
-  return db.select("trades", `side=eq.sell&created_at=gte.${enc(season.starts_at)}&created_at=lt.${enc(season.ends_at)}&select=id,agent_id,mint,realized_sol,sol_amount,created_at&order=created_at.asc&limit=10000`);
+  return db.select("trades", `side=eq.sell&created_at=gte.${enc(season.starts_at)}&created_at=lt.${enc(season.ends_at)}&select=id,agent_id,mint,realized_sol,sol_amount,created_at,chain,native_usd,realized_usd&order=created_at.asc&limit=10000`);
 }
-function totalsBy(closes) {
+// Season P&L in SOL-equivalent: Solana closes as-is; EVM closes converted via their recorded native USD price and the current SOL price.
+let solUsdCache = { at: 0, v: 0 };
+async function solUsdNow() { if (Date.now() - solUsdCache.at < 60e3 && solUsdCache.v) return solUsdCache.v; try { const p = require("./pump"); const v = await p.solPriceUsd(); if (v) solUsdCache = { at: Date.now(), v }; } catch {} return solUsdCache.v || 0; }
+function closeValueSol(c, solUsd) {
+  if ((c.chain || "solana") === "solana") return Number(c.realized_sol || 0);
+  const usd = c.realized_usd != null ? Number(c.realized_usd) : Number(c.realized_sol || 0) * Number(c.native_usd || 0);
+  return solUsd ? usd / solUsd : 0;
+}
+function totalsBy(closes, solUsd = solUsdCache.v) {
   const t = {};
-  for (const c of closes) t[c.agent_id] = (t[c.agent_id] || 0) + Number(c.realized_sol || 0);
+  for (const c of closes) t[c.agent_id] = (t[c.agent_id] || 0) + closeValueSol(c, solUsd);
   return t;
 }
 function rankOf(totals, agentId) {
@@ -33,4 +41,4 @@ function rankOf(totals, agentId) {
   return i === -1 ? null : i + 1;
 }
 
-module.exports = { currentSeason, seasonCloses, totalsBy, rankOf, enc };
+module.exports = { currentSeason, seasonCloses, totalsBy, rankOf, enc, solUsdNow, closeValueSol };

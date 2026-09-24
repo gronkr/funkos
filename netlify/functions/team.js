@@ -1,12 +1,12 @@
 // Teams: GET /api/team (leaderboard) · POST {action:"create",name} · POST {action:"join",code} · POST {action:"leave"}  (owner key)
 const db = require("./lib/db");
 const { json, handler, body, ownerFromRequest, publicAgent, randomKey, slug } = require("./lib/util");
-const { currentSeason, seasonCloses, totalsBy } = require("./lib/season");
+const { currentSeason, seasonCloses, totalsBy, solUsdNow } = require("./lib/season");
 
 exports.handler = handler(async (event) => {
   if (event.httpMethod === "GET") {
     const [teams, members, season] = await Promise.all([db.select("teams", "order=created_at.asc&limit=500"), db.select("agents", "team_id=not.is.null&limit=2000"), currentSeason()]);
-    const totals = totalsBy(await seasonCloses(season));
+    const totals = totalsBy(await seasonCloses(season), await solUsdNow());
     const rows = teams.map((t) => {
       const ms = members.filter((a) => a.team_id === t.id);
       return { team: { id: t.id, name: t.name, slug: t.slug, created_at: t.created_at }, members: ms.map(publicAgent), season_pnl_sol: +ms.reduce((s, a) => s + (totals[a.id] || 0), 0).toFixed(4), pnl_sol: +ms.reduce((s, a) => s + Number(a.pnl_sol || 0), 0).toFixed(4) };

@@ -1,14 +1,21 @@
 const db = require("./db");
 const pump = require("./pump");
+let evm = null; try { evm = require("./evm"); } catch {}
 
 // Name/symbol/image for any mint, cached in the coins table so every page can show it without external calls.
-async function coinMeta(mint) {
+async function coinMeta(mint, chain) {
   const hit = (await db.select("coins", `mint=eq.${mint}&limit=1`))[0];
   if (hit && hit.symbol) return hit;
   const tok = (await db.select("tokens", `mint=eq.${mint}&limit=1&select=mint,name,symbol,image_url`))[0];
-  const info = tok && tok.symbol ? tok : (await pump.tokenMeta(mint)) || null;
+  let info = tok && tok.symbol ? tok : null;
+  if (!info) {
+    if (/^0x[0-9a-fA-F]{40}$/.test(mint) && evm) {
+      const ids = chain && evm.bySlug(chain) ? [evm.bySlug(chain).id] : evm.enabledChains();
+      for (const id of ids) { info = await evm.tokenMeta(id, mint); if (info) break; }
+    } else info = (await pump.tokenMeta(mint)) || null;
+  }
   if (!info || !(info.symbol || info.name)) return hit || null;
-  const row = { mint, name: info.name || null, symbol: info.symbol || null, image_url: info.image_url || null, updated_at: new Date().toISOString() };
+  const row = { mint, name: info.name || null, symbol: info.symbol || null, image_url: info.image_url || null, chain: info.chain || chain || "solana", updated_at: new Date().toISOString() };
   await db.upsert("coins", row).catch(() => {});
   return row;
 }
@@ -28,10 +35,11 @@ async function attachCoins(rows, key = "mint") {
 }
 
 // Record a trade for an agent, keep its position and realized P&L in sync, and post it to the feed.
-async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, reasoning, token_name, token_symbol, pct, to_agent_id }) {
+// chain: "solana" | "bsc" | "robinhood". sol_amount is the NATIVE amount on that chain. native_usd = USD price of that native coin at the time.
+async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, reasoning, token_name, token_symbol, pct, to_agent_id, chain = "solana", native_usd = null }) {
   const sol = Number(sol_amount) || 0;
   const tokens = Number(token_amount) || 0;
-  const known = await coinMeta(mint);
+  const known = await coinMeta(mint, chain);
   token_symbol = token_symbol || known?.symbol; token_name = token_name || known?.name;
   const pos = (await db.select("positions", `agent_id=eq.${agent.id}&mint=eq.${mint}&limit=1`))[0];
   let realized = 0;
@@ -39,20 +47,20 @@ async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, re
   if (side === "buy") {
     // Lightning doesn't report fills, so read the real token balance from the wallet (best effort).
     let held = tokens;
-    if (!held && agent.wallet_pubkey) { await new Promise((r) => setTimeout(r, 2000)); held = await pump.getTokenBalance(agent.wallet_pubkey, mint); }
+    if (!held && chain === "solana" && agent.wallet_pubkey) { await new Promise((r) => setTimeout(r, 2000)); held = await pump.getTokenBalance(agent.wallet_pubkey, mint); }
     if (pos) await db.update("positions", `id=eq.${pos.id}`, { tokens: held || Number(pos.tokens) + tokens, cost_sol: Number(pos.cost_sol) + sol });
-    else await db.insert("positions", { agent_id: agent.id, mint, tokens: held, cost_sol: sol, opened_at: new Date().toISOString() });
+    else await db.insert("positions", { agent_id: agent.id, mint, tokens: held, cost_sol: sol, opened_at: new Date().toISOString(), chain });
   } else if (side === "sell" && pos && (Number(pos.cost_sol) > 0 || Number(pos.tokens) > 0)) {
     // Fraction closed: explicit pct wins; else token ratio if we know it; else treat as a full close.
     const frac = pct ? Math.min(1, Number(pct) / 100) : tokens > 0 && Number(pos.tokens) > 0 ? Math.min(1, tokens / Number(pos.tokens)) : 1;
     const costOut = Number(pos.cost_sol) * frac;
     realized = sol - costOut;
     let left = 0;
-    if (frac < 1 && agent.wallet_pubkey) { await new Promise((r) => setTimeout(r, 2000)); left = await pump.getTokenBalance(agent.wallet_pubkey, mint); }
+    if (frac < 1 && chain === "solana" && agent.wallet_pubkey) { await new Promise((r) => setTimeout(r, 2000)); left = await pump.getTokenBalance(agent.wallet_pubkey, mint); }
     await db.update("positions", `id=eq.${pos.id}`, { tokens: frac < 1 ? left || Number(pos.tokens) * (1 - frac) : 0, cost_sol: frac < 1 ? Math.max(0, Number(pos.cost_sol) - costOut) : 0 });
   }
 
-  const trade = await db.insert("trades", { agent_id: agent.id, mint, side, sol_amount: sol, token_amount: tokens, tx, reasoning: reasoning || null, realized_sol: realized });
+  const trade = await db.insert("trades", { agent_id: agent.id, mint, side, sol_amount: sol, token_amount: tokens, tx, reasoning: reasoning || null, realized_sol: realized, chain, native_usd, realized_usd: native_usd ? +(realized * native_usd).toFixed(4) : null });
   await db.update("agents", `id=eq.${agent.id}`, {
     pnl_sol: Number(agent.pnl_sol || 0) + realized,
     trades_count: Number(agent.trades_count || 0) + 1,
@@ -62,10 +70,10 @@ async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, re
   });
   await db.insert("posts", {
     agent_id: agent.id, kind: "trade", body: reasoning || (side === "buy" ? `Bought ${token_symbol || mint.slice(0, 6)}.` : `Sold ${token_symbol || mint.slice(0, 6)}.`),
-    mint, token_name: token_name || null, token_symbol: token_symbol || null, side, sol_amount: sol, tx, to_agent_id: to_agent_id || null,
+    mint, token_name: token_name || null, token_symbol: token_symbol || null, side, sol_amount: sol, tx, to_agent_id: to_agent_id || null, chain,
   });
-  // Copy trading: followers mirror this trade from their own hosted wallets (best effort, never blocks the leader).
-  mirrorToCopies(agent, trade, { side, sol, pct: side === "sell" ? Math.max(1, Math.min(100, Number(pct) || 100)) : 100 }).catch((e) => console.warn("mirror failed", e.message));
+  // Copy trading (Solana only for now): followers mirror this trade from their own hosted wallets.
+  if (chain === "solana") mirrorToCopies(agent, trade, { side, sol, pct: side === "sell" ? Math.max(1, Math.min(100, Number(pct) || 100)) : 100 }).catch((e) => console.warn("mirror failed", e.message));
   return { trade, realized };
 }
 
@@ -103,10 +111,11 @@ async function recordLaunch(agent, { mint, name, symbol, description, image_url,
 }
 
 // SOL spent on buys and launches by this agent in the last 24h (for daily limits).
-async function spentToday(agentId) {
+// SOL-equivalent spent on buys in the last 24h across chains (EVM buys converted through their native USD price).
+async function spentToday(agentId, solUsd = 0) {
   const since = new Date(Date.now() - 86400e3).toISOString();
-  const rows = await db.select("trades", `agent_id=eq.${agentId}&side=eq.buy&created_at=gte.${since}&select=sol_amount`);
-  return rows.reduce((s, r) => s + Number(r.sol_amount || 0), 0);
+  const rows = await db.select("trades", `agent_id=eq.${agentId}&side=eq.buy&created_at=gte.${since}&select=sol_amount,chain,native_usd`);
+  return rows.reduce((s, r) => { const amt = Number(r.sol_amount || 0); if ((r.chain || "solana") === "solana") return s + amt; const usd = amt * Number(r.native_usd || 0); return s + (solUsd ? usd / solUsd : 0); }, 0);
 }
 
 module.exports = { recordTrade, recordLaunch, spentToday, coinMeta, attachCoins };

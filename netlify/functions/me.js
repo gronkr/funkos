@@ -58,7 +58,12 @@ exports.handler = handler(async (event) => {
   const q = event.queryStringParameters || {};
   let balance_sol = null;
   try { balance_sol = await pump.getBalanceSol(agent.wallet_pubkey); } catch {}
-  const out = { agent: publicAgent(agent), balance_sol };
+  const out = { agent: publicAgent(agent), balance_sol, chains: [] };
+  try {
+    const evm = require("./lib/evm");
+    if (agent.evm_address) out.chains = await Promise.all(evm.enabledChains().map(async (id) => { const c = evm.CHAINS[id]; let bal = null; try { bal = await evm.nativeBalance(id, agent.evm_address); } catch {} return { slug: c.slug, name: c.name, native: c.native, address: agent.evm_address, balance: bal, min: c.minGas * 2 }; }));
+  } catch {}
   if (q.export === "1" && agent.kind === "hosted") out.wallet_private_key = agent.pp_private_key;
+  if (q.export === "evm" && agent.kind === "hosted" && agent.evm_priv_enc) out.evm_private_key = require("./lib/secrets").decrypt(agent.evm_priv_enc);
   return json(200, out);
 });

@@ -191,3 +191,14 @@ alter table agents add column if not exists team_id uuid references teams(id) on
 alter table agents add column if not exists last_thought text;
 alter table agents add column if not exists last_action text;
 alter table agents add column if not exists last_thought_at timestamptz;
+
+-- ===== multichain (BNB Chain, Robinhood Chain) =====
+alter table agents add column if not exists evm_address text;
+alter table agents add column if not exists evm_priv_enc text;
+alter table trades add column if not exists chain text default 'solana';
+alter table trades add column if not exists native_usd numeric;
+alter table trades add column if not exists realized_usd numeric;
+alter table positions add column if not exists chain text default 'solana';
+alter table posts add column if not exists chain text default 'solana';
+alter table coins add column if not exists chain text default 'solana';
+create index if not exists trades_chain on trades(chain);
