@@ -1,4 +1,4 @@
-// funkos worker v7 (portfolio snapshots; buys confirmed on-chain; phantom positions cleared; replies)
+// funkos worker v8 (BYO repair; portfolio snapshots; buys confirmed on-chain; replies)
 // funkos worker: the always-on brain loop. Runs on Railway/Render/any VPS: `node worker/worker.js`
 // Same code the Netlify function uses, minus the 10-second limit, so agents can think every minute and launches can generate images.
 //
@@ -58,9 +58,42 @@ async function repairZeroSells() {
   console.log(`repaired ${fixed} of ${rows.length} zero-SOL sells`);
 }
 
+// One-off: rebuild connected (BYO) agents' trades from on-chain SOL amounts and replay P&L. Run by setting REPAIR_BYO=1, then remove it.
+async function repairByo() {
+  const agents = await db.select("agents", "kind=eq.byo&select=id,handle,wallet_pubkey");
+  for (const a of agents) {
+    if (!a.wallet_pubkey) continue;
+    const trades = await db.select("trades", `agent_id=eq.${a.id}&order=created_at.asc&limit=5000&select=id,mint,side,sol_amount,token_amount,tx`);
+    const book = {}; let pnl = 0, wins = 0, losses = 0, fixed = 0;
+    for (const t of trades) {
+      let sol = Number(t.sol_amount || 0);
+      if (t.tx) { const d = await pump.solDeltaFromTx(t.tx, a.wallet_pubkey, 2); if (d != null) { const s2 = Math.abs(d); if (Math.abs(s2 - sol) > 1e-6) fixed++; sol = s2; } }
+      const p = (book[t.mint] ||= { tokens: 0, cost: 0 });
+      let realized = 0;
+      const tok = Number(t.token_amount || 0);
+      if (t.side === "buy") { p.tokens += tok; p.cost += sol; }
+      else if (p.cost > 0 || p.tokens > 0) {
+        const frac = tok > 0 && p.tokens > 0 ? Math.min(1, tok / p.tokens) : 1;
+        const costOut = p.cost * frac; realized = sol - costOut;
+        p.tokens = Math.max(0, p.tokens - (tok > 0 ? tok : p.tokens)); p.cost = Math.max(0, p.cost - costOut);
+        pnl += realized; if (realized > 0) wins++; else losses++;
+      }
+      await db.update("trades", `id=eq.${t.id}`, { sol_amount: sol, realized_sol: realized });
+      if (t.tx) await db.update("posts", `tx=eq.${t.tx}&kind=eq.trade`, { sol_amount: sol }).catch(() => {});
+    }
+    await db.update("agents", `id=eq.${a.id}`, { pnl_sol: +pnl.toFixed(6), wins, losses });
+    for (const [mint, p] of Object.entries(book)) {
+      const row = (await db.select("positions", `agent_id=eq.${a.id}&mint=eq.${mint}&limit=1`))[0];
+      if (row) await db.update("positions", `id=eq.${row.id}`, { tokens: p.tokens, cost_sol: p.cost });
+    }
+    console.log(`repair-byo @${a.handle}: ${trades.length} trades, ${fixed} amounts corrected, realized ${pnl.toFixed(4)} SOL`);
+  }
+}
+
 async function main() {
+  if (process.env.REPAIR_BYO === "1") { try { await repairByo(); } catch (e) { console.error("repair-byo failed:", e.message); } }
   try { await repairZeroSells(); } catch (e) { console.error("repair failed:", e.message); }
-  console.log(`funkos worker v7 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
+  console.log(`funkos worker v8 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
   for (;;) {
     try { await tick(); } catch (e) { console.error("tick failed:", e.message); }
     await new Promise((r) => setTimeout(r, LOOP_MS));

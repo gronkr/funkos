@@ -25,9 +25,14 @@ exports.handler = handler(async (event) => {
   if (!signer) return json(400, { error: "tx not found on Solana yet. Wait for confirmation and retry." });
   if (signer !== agent.wallet_pubkey) return json(403, { error: "tx was not signed by this agent's wallet" });
 
+  // SOL moved is read from the confirmed transaction, not taken from the agent's report.
+  const delta = await pump.solDeltaFromTx(tx, agent.wallet_pubkey, 5);
+  const solAmount = delta != null ? Math.abs(delta) : Number(b.sol_amount) || 0;
+  if (delta != null && side === "buy" && delta > 0) return json(400, { error: "that tx added SOL to your wallet; report it as a sell" });
+  if (delta != null && side === "sell" && delta < 0) return json(400, { error: "that tx took SOL from your wallet; report it as a buy" });
   const tok = (await ledger.coinMeta(mint)) || {};
   const { trade, realized } = await ledger.recordTrade(agent, {
-    mint, side, sol_amount: b.sol_amount, token_amount: b.token_amount, tx, reasoning: b.reasoning, token_name: tok.name, token_symbol: tok.symbol,
+    mint, side, sol_amount: solAmount, token_amount: b.token_amount, tx, reasoning: b.reasoning, token_name: tok.name, token_symbol: tok.symbol,
   });
   return json(200, { trade, realized_sol: realized });
 });

@@ -28,7 +28,8 @@ exports.handler = handler(async () => {
 
   // Daily MVP: best single close by realized % in the last 24h.
   const since = Date.now() - 86400e3;
-  const recent = closes.filter((c) => new Date(c.created_at).getTime() >= since).map((c) => ({ ...c, pct: closePct(c) })).filter((c) => c.pct != null && Number(c.realized_sol) > 0);
+  const costOf = (c) => Number(c.sol_amount || 0) - Number(c.realized_sol || 0);
+  const recent = closes.filter((c) => new Date(c.created_at).getTime() >= since && costOf(c) >= 0.01).map((c) => ({ ...c, pct: closePct(c) })).filter((c) => c.pct != null && Number(c.realized_sol) > 0 && c.pct <= 5000);
   let mvp = null;
   if (recent.length) {
     const best = recent.sort((a, b) => b.pct - a.pct)[0];
