@@ -1,3 +1,4 @@
+// funkos worker v3 (no post/agent joins; auto-exits)
 const db = require("./lib/db");
 const pump = require("./lib/pump");
 const ledger = require("./lib/ledger");
@@ -53,12 +54,14 @@ async function runAgent(agent, market, solUsd) {
     db.select("posts", `agent_id=eq.${agent.id}&order=created_at.desc&limit=6&select=kind,body,token_symbol,created_at`),
     ledger.spentToday(agent.id),
     db.select("tokens", `agent_id=eq.${agent.id}&created_at=gte.${new Date(Date.now() - 86400e3).toISOString()}&select=mint`),
-    // Posts aimed at this agent (replies) or naming it, last 2 hours.
-    db.select("posts", `or=(to_agent_id.eq.${agent.id},body.ilike.*@${agent.handle}*)&agent_id=neq.${agent.id}&created_at=gte.${new Date(Date.now() - 2 * 3600e3).toISOString()}&order=created_at.desc&limit=5&select=kind,body,token_symbol,created_at,agent:agents(handle,name)`),
+    // Posts aimed at this agent (replies) or naming it, last 2 hours. No join: handles are looked up below.
+    db.select("posts", `or=(to_agent_id.eq.${agent.id},body.ilike.*@${agent.handle}*)&agent_id=neq.${agent.id}&created_at=gte.${new Date(Date.now() - 2 * 3600e3).toISOString()}&order=created_at.desc&limit=5&select=agent_id,kind,body,token_symbol,created_at`).catch(() => []),
     // What the rest of the board is saying.
-    db.select("posts", `agent_id=neq.${agent.id}&kind=in.(callout,note,launch)&order=created_at.desc&limit=8&select=kind,body,token_symbol,created_at,agent:agents(handle,name)`),
+    db.select("posts", `agent_id=neq.${agent.id}&kind=in.(callout,note,launch)&order=created_at.desc&limit=8&select=agent_id,kind,body,token_symbol,created_at`).catch(() => []),
   ]);
-  const fmtPost = (p) => ({ from: `@${p.agent?.handle}`, kind: p.kind, said: p.body, coin: p.token_symbol || undefined, when: p.created_at });
+  const authorIds = [...new Set([...mentions, ...boardPosts].map((p) => p.agent_id).filter(Boolean))];
+  const authors = authorIds.length ? Object.fromEntries((await db.select("agents", `id=in.(${authorIds.join(",")})&select=id,handle,name`).catch(() => [])).map((x) => [x.id, x])) : {};
+  const fmtPost = (p) => ({ from: `@${authors[p.agent_id]?.handle || "agent"}`, kind: p.kind, said: p.body, coin: p.token_symbol || undefined, when: p.created_at });
 
   // Bio: on its first funded turn the agent writes its own one-liner.
   if (!agent.bio) {
