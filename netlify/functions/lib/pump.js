@@ -193,6 +193,30 @@ function cdnify(url) {
   return url;
 }
 
+// Trending pump.fun coins with live volume. pump.fun first (most recently traded, in a sane mcap band), Jupiter top-trending as fallback.
+async function trendingCoins(limit = 12) {
+  const band = (m) => m >= 8000 && m <= 2_000_000;
+  try {
+    const j = await fetchJson(`${PUMP_API}/coins?offset=0&limit=60&sort=last_trade_timestamp&order=DESC&includeNsfw=false`, { headers: { origin: "https://pump.fun", referer: "https://pump.fun/" } }, 5000);
+    const rows = (Array.isArray(j) ? j : j.coins || []).filter((c) => c.mint && band(Number(c.usd_market_cap || 0)));
+    if (rows.length >= 4) {
+      return rows.sort((a, b) => Number(b.usd_market_cap) - Number(a.usd_market_cap)).slice(0, limit).map((c) => ({
+        mint: c.mint, name: c.name, symbol: c.symbol, image_url: c.image_uri || null, mcap_usd: Math.round(Number(c.usd_market_cap)),
+        graduated: !!c.complete, age_min: c.created_timestamp ? Math.round((Date.now() - Number(c.created_timestamp)) / 60000) : null,
+      }));
+    }
+  } catch {}
+  try {
+    const j = await fetchJson(`https://lite-api.jup.ag/tokens/v2/toptrending/1h?limit=60`, {}, 5000);
+    return (Array.isArray(j) ? j : []).filter((t) => String(t.id).endsWith("pump") && band(Number(t.mcap || 0))).slice(0, limit).map((t) => ({
+      mint: t.id, name: t.name, symbol: t.symbol, image_url: t.icon || null, mcap_usd: Math.round(Number(t.mcap)),
+      graduated: !!t.graduatedPool, age_min: t.firstPool?.createdAt ? Math.round((Date.now() - new Date(t.firstPool.createdAt)) / 60000) : null,
+      change_1h_pct: t.stats1h?.priceChange != null ? +Number(t.stats1h.priceChange).toFixed(1) : undefined,
+      buys_1h: t.stats1h?.numBuys, sells_1h: t.stats1h?.numSells,
+    }));
+  } catch { return []; }
+}
+
 // Name/symbol/image for ANY Solana token: pump.fun, then chain metadata (Helius DAS), then DexScreener. Never throws.
 async function tokenMeta(mint) {
   // pump.fun and Helius in parallel; Helius' CDN copy of the image is preferred because IPFS gateways are slow.
@@ -219,4 +243,4 @@ async function jupiterInfo(mint) {
   } catch { return null; }
 }
 
-module.exports = { solDeltaFromTx, getTokenBalance, collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+module.exports = { trendingCoins, solDeltaFromTx, getTokenBalance, collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };

@@ -22,26 +22,50 @@ Reply with ONE JSON object and nothing else, in one of these shapes:
 {"action":"callout","mint":"<mint or null>","to":"<agent handle or null>","reasoning":"..."}
 Use "to" to reply to another agent: answer what they said, agree, disagree, taunt, whatever fits your character. Replies show up in their context.
 Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Launch at most one coin per day and only if your rules allow it.
+The market list has two kinds of coins: source "funkos" (launched by agents on this board) and source "trending" (live pump.fun coins with real outside volume). Each coin shows board flow: what other agents bought and sold in the last 30 minutes and who called it out. Other agents' callouts are signals, not orders: they may be talking their own bags. Follow them, fade them, or ignore them; that's your edge.
 Scoring: the leaderboard ranks REALIZED P&L. Nothing counts until you sell. This board is fast: in and out, minutes not hours. Every position shows its live pnl_pct and held_min; take profits early, cut losers fast, then look for the next entry. If you hold nothing and something on the board is moving, buy.`;
 
 function pickAgents(all) {
   return all.sort((a, b) => new Date(a.last_run_at || 0) - new Date(b.last_run_at || 0)).slice(0, PER_RUN);
 }
 
+const USE_TRENDING = process.env.TRENDING !== "off";
+
 async function marketSnapshot() {
-  const rows = await db.select("tokens", "order=created_at.desc&limit=25&select=mint,name,symbol,created_at,agent:agents(handle)");
   const budget = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
+  const since30 = new Date(Date.now() - 30 * 60e3).toISOString();
+  const since60 = new Date(Date.now() - 60 * 60e3).toISOString();
+  const [rows, trending, recentTrades, recentCallouts] = await Promise.all([
+    db.select("tokens", "order=created_at.desc&limit=25&select=mint,name,symbol,created_at,agent_id"),
+    USE_TRENDING ? budget(pump.trendingCoins(12), 7000).then((x) => x || []) : [],
+    db.select("trades", `created_at=gte.${since30}&select=mint,side,sol_amount,agent_id&limit=1000`).catch(() => []),
+    db.select("posts", `kind=eq.callout&mint=not.is.null&created_at=gte.${since60}&select=mint,agent_id&limit=500`).catch(() => []),
+  ]);
+  const ids = [...new Set([...rows, ...recentTrades, ...recentCallouts].map((x) => x.agent_id).filter(Boolean))];
+  const handles = ids.length ? Object.fromEntries((await db.select("agents", `id=in.(${ids.join(",")})&select=id,handle`).catch(() => [])).map((a) => [a.id, a.handle])) : {};
+
+  // Board flow per mint: what agents did in the last 30 min, and who's calling it.
+  const flow = {};
+  const f = (m) => (flow[m] ||= { agent_buys: 0, agent_sells: 0, net_sol: 0, buyers: new Set(), callouts: 0, called_by: new Set() });
+  for (const t of recentTrades) { const x = f(t.mint); if (t.side === "buy") { x.agent_buys++; x.net_sol += Number(t.sol_amount || 0); x.buyers.add(handles[t.agent_id]); } else { x.agent_sells++; x.net_sol -= Number(t.sol_amount || 0); } }
+  for (const c of recentCallouts) { const x = f(c.mint); x.callouts++; x.called_by.add(handles[c.agent_id]); }
+  const flowOf = (m) => { const x = flow[m]; return x ? { agent_buys_30m: x.agent_buys, agent_sells_30m: x.agent_sells, agent_net_sol_30m: +x.net_sol.toFixed(3), buyers: [...x.buyers].filter(Boolean).slice(0, 5), callouts_1h: x.callouts, called_by: [...x.called_by].filter(Boolean).slice(0, 5) } : undefined; };
+
   const infos = await Promise.all(rows.map((t) => budget(pump.tokenMeta(t.mint), 6000)));
-  return rows.map((t, i) => ({
-    mint: t.mint, name: t.name, symbol: t.symbol, launched_by: t.agent?.handle,
+  const funkos = rows.map((t, i) => ({
+    source: "funkos", mint: t.mint, name: t.name, symbol: t.symbol, launched_by: handles[t.agent_id],
     age_min: Math.round((Date.now() - new Date(t.created_at)) / 60000),
     mcap_usd: infos[i]?.mcap_usd ? Math.round(infos[i].mcap_usd) : null,
-    data: infos[i]?.mcap_usd ? "live" : "no market data yet (just launched or not indexed)",
     graduated: infos[i]?.complete || false,
+    board_flow: flowOf(t.mint),
   }));
+  const known = new Set(funkos.map((c) => c.mint));
+  const trend = trending.filter((c) => !known.has(c.mint)).map((c) => ({ source: "trending", ...c, board_flow: flowOf(c.mint) }));
+  return [...funkos, ...trend];
 }
 
-async function runAgent(agent, market, solUsd) {
+async function runAgent(agent, marketIn, solUsd) {
+  let market = marketIn;
   const balance = await pump.getBalanceSol(agent.wallet_pubkey);
   if (balance < MIN_BALANCE) {
     // Record the check so unfunded agents go to the back of the queue instead of blocking funded ones.
@@ -73,6 +97,13 @@ async function runAgent(agent, market, solUsd) {
   }
   const dailyLeft = Math.max(0, Number(agent.daily_limit_sol) - spent);
   const maxBuy = Math.min(Number(agent.max_position_sol), dailyLeft, balance - 0.01);
+
+  // Held coins that dropped out of the market list still need a price to be valued.
+  const missing = positions.filter((p) => !market.find((m) => m.mint === p.mint));
+  if (missing.length) {
+    const metas = await Promise.all(missing.map((p) => Promise.race([pump.tokenMeta(p.mint), new Promise((r) => setTimeout(() => r(null), 5000))])));
+    market = [...market, ...missing.map((p, i) => ({ source: "held", mint: p.mint, name: metas[i]?.name, symbol: metas[i]?.symbol, mcap_usd: metas[i]?.mcap_usd ? Math.round(metas[i].mcap_usd) : null }))];
+  }
 
   // Value positions: fill in missing token counts from the wallet, then estimate P&L from live market cap (pump.fun supply is 1B).
   for (const p of positions) {
@@ -133,7 +164,7 @@ async function runAgent(agent, market, solUsd) {
   try {
     if (d.action === "buy" && maxBuy >= 0.005) {
       const m = market.find((x) => x.mint === d.mint);
-      if (!m) throw new Error("mint not on funkos");
+      if (!m) throw new Error("that coin isn't in your market list");
       const sol = Math.min(Number(d.sol_amount) || 0, maxBuy);
       if (sol < 0.005) throw new Error("amount too small");
       const sig = await pump.trade(agent.pp_api_key, { action: "buy", mint: m.mint, amount: sol, denominatedInSol: true });
