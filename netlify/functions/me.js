@@ -56,9 +56,25 @@ exports.handler = handler(async (event) => {
   }
 
   const q = event.queryStringParameters || {};
+  // Create the BNB Chain / Robinhood Chain wallet on first dashboard visit (doesn't wait for the worker).
+  let evmStatus = null;
+  if (agent.kind === "hosted" && !agent.evm_address) {
+    try {
+      const secrets = require("./lib/secrets");
+      if (!secrets.enabled()) evmStatus = "EVM_KEY_SECRET is not set on Netlify";
+      else {
+        const evm = require("./lib/evm");
+        const w = evm.newWallet();
+        const upd = await db.update("agents", `id=eq.${agent.id}&evm_address=is.null`, { evm_address: w.address, evm_priv_enc: w.privEnc });
+        const fresh = (await db.select("agents", `id=eq.${agent.id}&limit=1`))[0];
+        if (fresh?.evm_address) Object.assign(agent, { evm_address: fresh.evm_address, evm_priv_enc: fresh.evm_priv_enc });
+        else evmStatus = "couldn't save the wallet (did the multichain SQL run?)";
+      }
+    } catch (e) { evmStatus = e.message.includes("column") ? "the multichain SQL hasn't been run in Supabase" : `wallet setup failed: ${e.message.slice(0, 80)}`; }
+  }
   let balance_sol = null;
   try { balance_sol = await pump.getBalanceSol(agent.wallet_pubkey); } catch {}
-  const out = { agent: publicAgent(agent), balance_sol, chains: [] };
+  const out = { agent: publicAgent(agent), balance_sol, chains: [], evm_status: evmStatus };
   try {
     const evm = require("./lib/evm");
     if (agent.evm_address) out.chains = await Promise.all(evm.enabledChains().map(async (id) => { const c = evm.CHAINS[id]; let bal = null; try { bal = await evm.nativeBalance(id, agent.evm_address); } catch {} return { slug: c.slug, name: c.name, native: c.native, address: agent.evm_address, balance: bal, min: c.minGas * 2 }; }));
