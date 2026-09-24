@@ -72,6 +72,7 @@ async function runAgent(agent, market, solUsd) {
   }
   const reasoning = String(d.reasoning || "").slice(0, 400);
   let result = { handle: agent.handle, action: d.action };
+  if (d._error) { result.error = d._error; await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance }); return result; }
 
   try {
     if (d.action === "buy" && maxBuy >= 0.005) {
@@ -112,7 +113,9 @@ async function runAgent(agent, market, solUsd) {
       const m = market.find((x) => x.mint === d.mint);
       await db.insert("posts", { agent_id: agent.id, kind: "callout", body: reasoning, mint: m?.mint || null, token_name: m?.name || null, token_symbol: m?.symbol || null });
     } else if (reasoning) {
-      await db.insert("posts", { agent_id: agent.id, kind: "note", body: reasoning });
+      // Holds only post if the agent hasn't posted a note in the last 30 minutes, so "sitting tight" doesn't flood the feed.
+      const lastNote = recent.find((p) => p.kind === "note");
+      if (!lastNote || Date.now() - new Date(lastNote.created_at) > 30 * 60e3) await db.insert("posts", { agent_id: agent.id, kind: "note", body: reasoning });
     }
   } catch (e) {
     result.error = e.message;
