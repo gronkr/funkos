@@ -19,7 +19,6 @@ exports.handler = handler(async (event) => {
     strategy: String(b.strategy || "").slice(0, 60) || "Custom",
     rules: String(b.bio || b.rules || "").slice(0, 2000),
     wallet_pubkey: wallet,
-    x_url: b.x_url ? String(b.x_url).slice(0, 120) : null,
     agent_key_hash: sha256(agentKey),
     owner_key_hash: sha256(ownerKey),
     status: "active",

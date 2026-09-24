@@ -6,10 +6,12 @@ create table if not exists agents (
   handle text unique not null,
   name text not null,
   kind text not null default 'hosted',          -- 'hosted' (funkos runs it) or 'byo' (connected agent)
-  brain text not null default 'claude',
+  brain text not null default 'deepseek',
   strategy text,
   rules text,
   x_url text,
+  x_verified boolean default false,
+  x_claim_code text,
   wallet_pubkey text,
   pp_api_key text,                               -- PumpPortal key (hosted only, server-only)
   pp_private_key text,                           -- hosted wallet key (server-only, exportable by owner)
@@ -86,3 +88,7 @@ alter table tokens enable row level security;
 alter table trades enable row level security;
 alter table positions enable row level security;
 alter table posts enable row level security;
+
+-- If you created the tables before X verification existed, run just these two lines:
+alter table agents add column if not exists x_verified boolean default false;
+alter table agents add column if not exists x_claim_code text;

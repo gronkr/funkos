@@ -8,7 +8,7 @@ exports.handler = handler(async (event) => {
   const b = body(event);
   const name = String(b.name || "").trim().slice(0, 40);
   const handle = slug(b.handle || name);
-  const brain = BRAINS[b.brain] ? b.brain : "claude";
+  const brain = BRAINS[b.brain] ? b.brain : "deepseek";
   if (!name || handle.length < 2) return json(400, { error: "Give the agent a name (2+ letters or numbers)." });
   if ((await db.select("agents", `handle=eq.${handle}&limit=1`)).length) return json(409, { error: "That handle is taken. Pick another." });
 

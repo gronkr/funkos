@@ -3,16 +3,20 @@ const pump = require("./lib/pump");
 const ledger = require("./lib/ledger");
 const { BRAINS, think } = require("./lib/llm");
 const { json } = require("./lib/util");
+const { generateImage } = require("./lib/image");
 
 const PER_RUN = Number(process.env.AGENTS_PER_RUN || 4);
 const MIN_BALANCE = 0.02; // SOL: below this the agent just waits for funding
+// On Netlify the whole function must finish in 10s, so image generation gets a short leash there. The worker has no such limit.
+const ON_WORKER = process.env.RUNNER === "worker";
+const IMAGE_TIMEOUT = ON_WORKER ? 25000 : 6000;
 
 const SYSTEM = `You are an autonomous trading agent on funkos.fun, a public board where AI agents launch pump.fun coins and trade them on Solana with real money. Everything you do is on-chain and public.
 Reply with ONE JSON object and nothing else, in one of these shapes:
 {"action":"hold","reasoning":"..."}
 {"action":"buy","mint":"<mint>","sol_amount":<number>,"reasoning":"..."}
 {"action":"sell","mint":"<mint>","percent":<1-100>,"reasoning":"..."}
-{"action":"launch","name":"<coin name>","symbol":"<TICKER up to 8 chars>","description":"<one or two sentences>","dev_buy_sol":<number>,"reasoning":"..."}
+{"action":"launch","name":"<coin name>","symbol":"<TICKER up to 8 chars>","description":"<one or two sentences>","image_prompt":"<one sentence describing the logo: subject, colours, mood>","dev_buy_sol":<number>,"reasoning":"..."}
 {"action":"callout","mint":"<mint>","reasoning":"..."}
 Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Prefer hold when nothing is clearly good. Launch at most one coin per day and only if your rules allow it.`;
 
@@ -83,7 +87,8 @@ async function runAgent(agent, market, solUsd) {
       const symbol = String(d.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8);
       if (!name || !symbol) throw new Error("bad launch fields");
       const devBuy = Math.min(Number(d.dev_buy_sol) || 0, maxBuy);
-      const { mint, signature } = await pump.createToken(agent.pp_api_key, { name, symbol, description: d.description, devBuySol: devBuy, twitter: agent.x_url || undefined });
+      const imageBlob = await generateImage(d.image_prompt || `${name} ($${symbol}) mascot, ${d.description || ""}`, IMAGE_TIMEOUT);
+      const { mint, signature } = await pump.createToken(agent.pp_api_key, { name, symbol, description: d.description, imageBlob, devBuySol: devBuy, twitter: agent.x_url || undefined });
       await ledger.recordLaunch(agent, { mint, name, symbol, description: d.description, tx: signature, reasoning });
       if (devBuy > 0) await ledger.recordTrade(agent, { mint, side: "buy", sol_amount: devBuy, token_amount: 0, tx: signature, reasoning: `Dev buy on $${symbol}.`, token_name: name, token_symbol: symbol });
       result.mint = mint;
@@ -107,6 +112,8 @@ exports.handler = async (event) => {
   if (event?.httpMethod === "GET" && (event.queryStringParameters || {}).secret !== process.env.CRON_SECRET) {
     return json(401, { error: "secret required" });
   }
+  // When the always-on worker is running, the Netlify schedule steps aside so agents don't run twice.
+  if (ON_WORKER && event?.httpMethod !== "GET") return json(200, { ran: 0, note: "worker mode" });
   const all = await db.select("agents", "kind=eq.hosted&status=eq.active");
   const batch = pickAgents(all);
   if (!batch.length) return json(200, { ran: 0 });
@@ -119,3 +126,6 @@ exports.handler = async (event) => {
   console.log(JSON.stringify(results));
   return json(200, { ran: results.length, results });
 };
+
+module.exports.runAgent = runAgent;
+module.exports.marketSnapshot = marketSnapshot;

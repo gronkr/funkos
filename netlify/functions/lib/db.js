@@ -1,5 +1,5 @@
 // Thin Supabase REST client. Uses the service key: only ever runs server-side.
-const BASE = () => `${process.env.SUPABASE_URL}/rest/v1`;
+const BASE = () => `${String(process.env.SUPABASE_URL || "").replace(/\/(rest\/v1)?\/?$/, "")}/rest/v1`;
 const headers = (extra = {}) => ({
   apikey: process.env.SUPABASE_SERVICE_KEY,
   Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,

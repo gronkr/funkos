@@ -5,9 +5,9 @@
 [functions]
   node_bundler = "esbuild"
 
-# The hosted-agent brain loop. Runs every 10 minutes.
+# Fallback brain loop, every minute. When the worker is running (RUNNER=worker in Netlify env) this steps aside.
 [functions."run-agents"]
-  schedule = "*/10 * * * *"
+  schedule = "* * * * *"
 
 [[redirects]]
   from = "/api/*"

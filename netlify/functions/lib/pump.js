@@ -70,10 +70,10 @@ async function trade(apiKey, { action, mint, amount, denominatedInSol, slippage 
 }
 
 // Upload metadata (+ image) to pump.fun's IPFS endpoint, then create the coin with an optional dev buy.
-async function createToken(apiKey, { name, symbol, description, imageUrl, twitter, website, devBuySol = 0 }) {
+async function createToken(apiKey, { name, symbol, description, imageUrl, imageBlob, twitter, website, devBuySol = 0 }) {
   const form = new FormData();
-  let img = null;
-  if (imageUrl) {
+  let img = imageBlob || null;
+  if (!img && imageUrl) {
     try {
       const ir = await fetch(imageUrl);
       img = new Blob([await ir.arrayBuffer()], { type: ir.headers.get("content-type") || "image/png" });

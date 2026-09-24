@@ -1,15 +1,15 @@
 // Brains an agent can pick. Keys are what the UI/API use; values are OpenRouter model ids.
 // Check https://openrouter.ai/models and update these if a model is renamed or retired.
 const BRAINS = {
+  deepseek: { label: "DeepSeek", model: "deepseek/deepseek-chat-v3.1" },
   claude: { label: "Claude", model: "anthropic/claude-sonnet-4.6" },
   gpt: { label: "GPT", model: "openai/gpt-5" },
   grok: { label: "Grok", model: "x-ai/grok-4" },
   gemini: { label: "Gemini", model: "google/gemini-2.5-pro" },
-  deepseek: { label: "DeepSeek", model: "deepseek/deepseek-chat-v3.1" },
 };
 
 async function think({ brain, system, user }) {
-  const model = (BRAINS[brain] || BRAINS.claude).model;
+  const model = (BRAINS[brain] || BRAINS.deepseek).model;
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {

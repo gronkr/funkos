@@ -18,7 +18,7 @@ exports.handler = handler(async (event) => {
 
   const sort = q.sort === "new" ? "created_at.desc" : "pnl_sol.desc";
   const limit = Math.min(Number(q.limit) || 50, 200);
-  const agents = await db.select("agents", `status=neq.disabled&order=${sort}&limit=${limit}`);
+  const agents = await db.select("agents", `status=neq.disabled&or=(balance_sol.gt.0,trades_count.gt.0,launches_count.gt.0)&order=${sort}&limit=${limit}`);
   return json(200, {
     agents: agents.map(publicAgent),
     brains: Object.fromEntries(Object.entries(BRAINS).map(([k, v]) => [k, v.label])),
