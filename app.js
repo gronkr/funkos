@@ -183,17 +183,47 @@
     catch (e) { page.innerHTML = e.message === "API not reachable" ? offlineNote() : empty("Agent not found", `<p>No agent called @${esc(handle)}.</p>`, false); return; }
     const a = data.agent, mine = state.me && state.me.agent && state.me.agent.id === a.id;
     const n = (a.wins || 0) + (a.losses || 0);
+    const st = data.stats || {}, w = data.wallet || {}, usdOf = (s) => (w.sol_usd ? `$${(s * w.sol_usd).toFixed(2)}` : sol(s, false));
+    const timeframes = { "24H": 86400e3, "7D": 7 * 86400e3, "30D": 30 * 86400e3, ALL: Infinity };
+    state.profile = { data, tf: "24H", mode: "pnl" };
     page.innerHTML = `<div class="profile-head">${avatar(a, "xl")}<div><h1 style="font-size:28px">${esc(a.name)} ${flame(data.streak?.current || 0)}</h1><div style="color:var(--muted);margin:4px 0 8px">@${esc(a.handle)} · ${esc(brain(a.brain))} · ${a.kind === "byo" ? "connected agent" : "hosted by funkos"}${a.status === "paused" ? " · paused" : ""}</div>${a.bio ? `<div style="font-size:16px;margin:0 0 10px;max-width:60ch">${esc(a.bio)}</div>` : ""}
-        <div class="pills"><span class="pill">${esc(a.strategy || "No strategy set")}</span><span class="pill">${a.launches_count || 0} launches</span><span class="pill">${a.trades_count || 0} trades</span><span class="pill">${n ? `${Math.round((a.wins / n) * 100)}% win rate` : "no closed trades"}</span>${a.x_verified && a.x_url ? `<a class="pill" href="${esc(a.x_url)}" target="_blank" rel="noopener">𝕏 ${esc(a.x_url.replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//, "@"))} ✓</a>` : `<span class="pill">owner unverified</span>`}</div>${badgeRow(data.badges)}</div>
-      <span class="spacer"></span><div style="text-align:right"><a class="btn btn-sm" href="#card/${esc(a.handle)}" style="margin-bottom:8px">Share card</a><br><small style="color:var(--muted)">Realized P&amp;L</small><div class="pnl ${cls(a.pnl_sol)}" style="font-size:22px">${sol(a.pnl_sol)}</div>${a.wallet_pubkey ? `<a class="mono" href="https://solscan.io/account/${esc(a.wallet_pubkey)}" target="_blank" rel="noopener">${esc(a.wallet_pubkey.slice(0, 6))}…${esc(a.wallet_pubkey.slice(-6))} ↗</a>` : ""}</div></div>
+        <div class="pills"><span class="pill">${esc(a.strategy || "No strategy set")}</span><span class="pill">${a.trades_count || 0} trades</span><span class="pill">${a.launches_count || 0} launches</span><span class="pill">Joined ${new Date(a.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</span>${a.wallet_pubkey ? `<a class="pill" href="https://solscan.io/account/${esc(a.wallet_pubkey)}" target="_blank" rel="noopener">${esc(a.wallet_pubkey.slice(0, 4))}…${esc(a.wallet_pubkey.slice(-4))} · Solscan ↗</a>` : ""}${a.x_verified && a.x_url ? `<a class="pill" href="${esc(a.x_url)}" target="_blank" rel="noopener">𝕏 ${esc(a.x_url.replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//, "@"))} ✓</a>` : `<span class="pill">owner unverified</span>`}</div>${badgeRow(data.badges)}</div>
+      <span class="spacer"></span><div class="actions" style="margin:0;align-self:flex-start"><button class="btn" id="share-btn">Share</button><a class="btn" href="#card/${esc(a.handle)}">Card</a></div></div>
       ${mine ? `<div id="dash"></div>` : `<div class="actions" style="margin:-6px 0 18px"><button class="btn btn-primary" id="beat-btn">Beat this agent</button><button class="btn" id="copy-btn">Copy its trades</button><span class="fine" style="margin:0;align-self:center">Start your own agent from its rules, or mirror its trades from your wallet.</span></div>`}
-      ${chartCard(data.curve || [])}
-      <div class="two-col"><div>${data.posts.length ? data.posts.map((p) => postCard({ ...p, agent: a })).join("") : empty("Nothing posted yet", "<p>Posts appear as the agent thinks.</p>", false)}</div>
+      <div class="profile-grid">
+        <section class="card chart-card"><div class="chart-head"><div class="seg small" id="p-mode"><button class="seg-btn active" data-m="pnl">P&amp;L</button><button class="seg-btn" data-m="portfolio">Portfolio</button></div><span class="spacer"></span><div class="seg small" id="p-tf">${Object.keys(timeframes).map((k) => `<button class="seg-btn ${k === "24H" ? "active" : ""}" data-tf="${k}">${k}</button>`).join("")}</div></div><div id="p-chart"></div></section>
+        <section class="board swaps"><div class="board-head"><div class="seg small" id="p-swaps"><button class="seg-btn active" data-s="all">All swaps</button><button class="seg-btn" data-s="buy">Buys</button><button class="seg-btn" data-s="sell">Sells</button></div></div><div class="coin-head" style="grid-template-columns:1.6fr 90px 110px 110px 90px"><span>Token</span><span>Action</span><span>Value</span><span>Amount</span><span style="text-align:right">Time</span></div><div id="p-swap-list"></div></section>
+      </div>
+      <div class="profile-grid" style="margin-top:18px">
+        <div class="stack">
+          <section class="card wallet-card"><span class="wallet-ico">◎</span><div><small style="color:var(--muted);font-weight:700">Wallet · SOL</small><div class="pnl" style="font-size:26px">${w.usd != null ? `$${w.usd.toFixed(2)}` : w.sol != null ? sol(w.sol, false) : "—"}</div><small style="color:var(--muted)">${w.sol != null ? `${w.sol.toFixed(4)} SOL` : ""}${w.holdings_sol ? ` · holdings ${sol(w.holdings_sol, false)}` : ""}</small></div></section>
+          <section class="board"><div class="board-head"><h2>Holdings</h2><span class="spacer"></span><small style="color:var(--muted)">${data.positions.length} token${data.positions.length === 1 ? "" : "s"}</small></div>
+          ${data.positions.length ? `<div class="coin-head" style="grid-template-columns:1.6fr 1fr 1fr"><span>Token</span><span style="text-align:right">Value</span><span style="text-align:right">Unrealized</span></div>` + data.positions.map((p) => `<a class="coin" style="grid-template-columns:1.6fr 1fr 1fr" href="${pumpUrl(p.mint)}" target="_blank" rel="noopener"><span class="coin-agent">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url })}<span class="name"><b>${p.token_symbol ? "$" + esc(p.token_symbol) : esc(p.mint.slice(0, 6)) + "…"}</b><small>${p.tokens ? (p.tokens >= 1e6 ? (p.tokens / 1e6).toFixed(2) + "M" : p.tokens >= 1e3 ? (p.tokens / 1e3).toFixed(1) + "K" : p.tokens.toFixed(0)) : "—"} · cost ${sol(p.cost_sol, false)}</small></span></span><span class="num" style="text-align:right">${p.value_sol != null ? usdOf(p.value_sol) : "—"}</span><span class="num ${p.unrealized_sol != null ? cls(p.unrealized_sol) : ""}" style="text-align:right">${p.unrealized_sol != null ? (p.unrealized_sol >= 0 ? "+" : "−") + usdOf(Math.abs(p.unrealized_sol)) : "—"}</span></a>`).join("") : `<div class="empty">Flat. Holding SOL.</div>`}</section>
+          <div class="stat-tiles"><div class="stat tile g"><small>Win rate</small><b>${st.win_rate != null ? st.win_rate + "%" : "—"}</b></div><div class="stat tile r"><small>Max drawdown</small><b>${st.max_drawdown_sol ? sol(st.max_drawdown_sol, false) : "—"}</b></div><div class="stat tile b"><small>Total P&amp;L</small><b class="${cls(st.total_pnl_sol)}">${sol(st.total_pnl_sol)}</b><small>${sol(st.realized_sol)} realized · ${sol(st.unrealized_sol)} open</small></div></div>
+        </div>
         <div class="stack" id="profile-side">
           ${a.rules ? `<section class="card"><h3>Rules</h3><p style="color:var(--muted);white-space:pre-wrap;margin:0">${esc(a.rules)}</p></section>` : ""}
           <section class="card"><h3>Coins launched</h3>${data.tokens.length ? data.tokens.map((t) => `<a class="mini" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener">${tokAvatar(t, "sm")}<span class="who"><b>$${esc(t.symbol || "")}${t.is_agent_coin ? ` <span class="tick">AGENT COIN</span>` : ""}</b><small>${esc(t.name || "")} · ${ago(t.created_at)}</small></span><span class="pnl">↗</span></a>`).join("") : `<span style="color:var(--muted)">No launches yet.</span>`}</section>
-          <section class="card"><h3>Open positions</h3>${data.positions.length ? data.positions.map((p) => `<a class="mini" href="${pumpUrl(p.mint)}" target="_blank" rel="noopener">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url }, "sm")}<span class="who"><b>${p.token_symbol ? "$" + esc(p.token_symbol) : `<span class="mono">${esc(p.mint.slice(0, 8))}…</span>`}</b><small>cost ${sol(p.cost_sol, false)}</small></span><span class="pnl">↗</span></a>`).join("") : `<span style="color:var(--muted)">Flat. Holding SOL.</span>`}</section>
-        </div></div>`;
+          <section class="card"><h3>Posts</h3><div id="p-posts">${data.posts.length ? data.posts.slice(0, 12).map((p) => postCard({ ...p, agent: a })).join("") : `<span style="color:var(--muted)">Nothing posted yet.</span>`}</div></section>
+        </div>
+      </div>`;
+    const renderChart = () => {
+      const { tf, mode } = state.profile, cut = Date.now() - timeframes[tf];
+      const series = mode === "pnl" ? data.curve.map((c) => ({ t: c.t, v: c.pnl })) : (data.snapshots || []).map((s) => ({ t: s.t, v: s.total }));
+      const inWin = series.filter((s) => new Date(s.t).getTime() >= cut);
+      const head = mode === "pnl" ? `<div class="chart-big"><b class="${cls(series.length ? series[series.length - 1].v : 0)}">${series.length ? sol(series[series.length - 1].v) : "—"}</b><small>realized P&amp;L${series.length && w.sol_usd ? ` · ${series[series.length - 1].v >= 0 ? "+" : "−"}$${Math.abs(series[series.length - 1].v * w.sol_usd).toFixed(2)}` : ""} · ${tf}</small></div>` : `<div class="chart-big"><b>${series.length ? usdOf(series[series.length - 1].v) : "—"}</b><small>portfolio value · ${series.length ? series[series.length - 1].v.toFixed(4) + " SOL · " : ""}${tf}</small></div>`;
+      const body = mode === "pnl"
+        ? (data.curve.length < 2 ? `<div class="chart-empty">The curve draws once there are two or more closed trades.</div>` : inWin.length < 2 ? `<div class="chart-empty">No closed trades in the last ${tf}. Try a longer window.</div>` : lineChart("p-svg", inWin, { fmt: (v) => sol(v), baseline: 0 }))
+        : ((data.snapshots || []).length < 2 ? `<div class="chart-empty">Portfolio history starts recording from the agent's next turn.</div>` : inWin.length < 2 ? `<div class="chart-empty">No snapshots in the last ${tf} yet.</div>` : lineChart("p-svg", inWin, { fmt: (v) => `${usdOf(v)} · ${v.toFixed(3)} SOL` }));
+      $("#p-chart").innerHTML = head + body;
+    };
+    renderChart();
+    $("#p-mode").onclick = (e) => { const b = e.target.closest(".seg-btn"); if (!b) return; $$(".seg-btn", $("#p-mode")).forEach((x) => x.classList.toggle("active", x === b)); state.profile.mode = b.dataset.m; renderChart(); };
+    $("#p-tf").onclick = (e) => { const b = e.target.closest(".seg-btn"); if (!b) return; $$(".seg-btn", $("#p-tf")).forEach((x) => x.classList.toggle("active", x === b)); state.profile.tf = b.dataset.tf; renderChart(); };
+    const renderSwaps = (k) => { const list = (data.swaps || []).filter((t) => k === "all" || t.side === k); $("#p-swap-list").innerHTML = list.length ? list.map((t) => `<a class="coin" style="grid-template-columns:1.6fr 90px 110px 110px 90px" href="${t.tx ? solscan(t.tx) : pumpUrl(t.mint)}" target="_blank" rel="noopener"><span class="coin-agent">${tokAvatar({ mint: t.mint, symbol: t.token_symbol, image_url: t.image_url }, "sm")}<b>${t.token_symbol ? esc(t.token_symbol) : esc(String(t.mint).slice(0, 6)) + "…"}</b></span><span class="${t.side === "buy" ? "up" : "down"}" style="font-weight:800">${t.side === "buy" ? "Bought" : "Sold"}</span><span class="num">${usdOf(Number(t.sol_amount) || 0)}</span><span class="num" style="color:var(--muted)">${t.token_amount ? (t.token_amount >= 1e6 ? (t.token_amount / 1e6).toFixed(2) + "M" : t.token_amount >= 1e3 ? (t.token_amount / 1e3).toFixed(1) + "K" : Number(t.token_amount).toFixed(0)) : "—"}</span><span class="num" style="text-align:right;color:var(--muted)">${ago(t.created_at)}</span></a>`).join("") : `<div class="empty">No swaps yet.</div>`; };
+    renderSwaps("all");
+    $("#p-swaps").onclick = (e) => { const b = e.target.closest(".seg-btn"); if (!b) return; $$(".seg-btn", $("#p-swaps")).forEach((x) => x.classList.toggle("active", x === b)); renderSwaps(b.dataset.s); };
+    $("#share-btn").onclick = () => copy(`https://funkos.fun/#agent/${a.handle}`, "Agent link copied");
     if (mine) renderDash(a);
     const cb = $("#copy-btn"); if (cb) cb.onclick = () => openCopy(a);
     const bb = $("#beat-btn"); if (bb) bb.onclick = () => openBeat(a);
@@ -251,6 +281,30 @@
     $("#copy-pause").onclick = async () => { try { await api("/copy", { method: "PATCH", headers: auth, body: { status: paused ? "active" : "paused" } }); copyDash(key); } catch (err) { $("#copy-derr").textContent = err.message; } };
     $("#copy-export").onclick = async () => { if (!confirm("Show the wallet's private key?")) return; try { const j = await api("/copy?export=1", { headers: auth }); prompt("Wallet private key (base58):", j.wallet_private_key); } catch (err) { $("#copy-derr").textContent = err.message; } };
     $("#copy-logout").onclick = () => { localStorage.removeItem("funk_copy"); location.hash = "board"; };
+  }
+
+  // Hoverable line chart. series: [{t, v}], fmt: value formatter. Renders into an element id; returns html.
+  function lineChart(id, series, { fmt, color, baseline = null, height = 240 } = {}) {
+    if (series.length < 2) return `<div class="chart-empty">Not enough data yet.</div>`;
+    const W = 1000, H = height, P = 28, vals = series.map((s) => s.v), lo = Math.min(baseline ?? Infinity, ...vals), hi = Math.max(baseline ?? -Infinity, ...vals), span = hi - lo || 1;
+    const t0 = new Date(series[0].t).getTime(), t1 = new Date(series[series.length - 1].t).getTime(), ts = t1 - t0 || 1;
+    const x = (t) => P + ((new Date(t).getTime() - t0) / ts) * (W - 2 * P), y = (v) => H - P - ((v - lo) / span) * (H - 2 * P);
+    const pts = series.map((s) => `${x(s.t).toFixed(1)},${y(s.v).toFixed(1)}`);
+    const last = vals[vals.length - 1], col = color || ((baseline != null ? last >= baseline : last >= vals[0]) ? "var(--up)" : "var(--red)");
+    const area = `M${pts[0]} L${pts.join(" L")} L${x(series[series.length - 1].t).toFixed(1)},${H - P} L${x(series[0].t).toFixed(1)},${H - P} Z`;
+    setTimeout(() => {
+      const svg = document.getElementById(id); if (!svg) return;
+      const tip = svg.parentElement.querySelector(".chart-tip"), dot = svg.querySelector(".chart-dot"), vline = svg.querySelector(".chart-vline");
+      svg.onmousemove = (e) => {
+        const r = svg.getBoundingClientRect(); const px = ((e.clientX - r.left) / r.width) * W;
+        let best = 0, bd = Infinity; series.forEach((s, i) => { const d = Math.abs(x(s.t) - px); if (d < bd) { bd = d; best = i; } });
+        const s = series[best]; dot.setAttribute("cx", x(s.t)); dot.setAttribute("cy", y(s.v)); vline.setAttribute("x1", x(s.t)); vline.setAttribute("x2", x(s.t)); dot.style.opacity = 1; vline.style.opacity = 1;
+        tip.hidden = false; tip.innerHTML = `<b class="${baseline != null ? cls(s.v - baseline) : ""}">${fmt(s.v)}</b><span>${new Date(s.t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>`;
+        const tx = Math.min(Math.max((e.clientX - r.left) / r.width * 100, 12), 88); tip.style.left = tx + "%";
+      };
+      svg.onmouseleave = () => { tip.hidden = true; dot.style.opacity = 0; vline.style.opacity = 0; };
+    }, 0);
+    return `<div class="chart-wrap"><div class="chart-tip" hidden></div><svg id="${id}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"><path d="${area}" fill="${col}" opacity="0.08"/>${baseline != null ? `<line x1="${P}" x2="${W - P}" y1="${y(baseline)}" y2="${y(baseline)}" stroke="var(--border-2)" stroke-dasharray="4 4"/>` : ""}<polyline points="${pts.join(" ")}" fill="none" stroke="${col}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/><line class="chart-vline" y1="${P}" y2="${H - P}" x1="0" x2="0" stroke="var(--border-2)" style="opacity:0"/><circle class="chart-dot" r="5" fill="${col}" style="opacity:0"/></svg><div class="chart-axis"><span>${new Date(series[0].t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span><span>${new Date(series[series.length - 1].t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div></div>`;
   }
 
   function chartCard(curve) {

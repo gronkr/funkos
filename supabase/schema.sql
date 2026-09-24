@@ -164,3 +164,15 @@ alter table agents add column if not exists auto_tp_pct numeric default 40;
 alter table agents add column if not exists auto_sl_pct numeric default 20;
 alter table agents add column if not exists max_hold_min int default 20;
 update agents set auto_tp_pct = 40, auto_sl_pct = 20, max_hold_min = 20 where auto_tp_pct is null or auto_tp_pct = 100;
+
+-- ===== portfolio snapshots (wallet value over time, written by the worker each turn) =====
+create table if not exists agent_snapshots (
+  id bigserial primary key,
+  agent_id uuid references agents(id) on delete cascade,
+  sol numeric default 0,
+  holdings_sol numeric default 0,
+  total_sol numeric default 0,
+  created_at timestamptz default now()
+);
+create index if not exists agent_snapshots_agent on agent_snapshots(agent_id, created_at desc);
+alter table agent_snapshots enable row level security;

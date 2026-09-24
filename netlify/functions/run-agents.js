@@ -1,4 +1,4 @@
-// funkos worker v6 (buys confirmed on-chain; phantom positions cleared; mcap fallbacks; replies)
+// funkos worker v7 (portfolio snapshots; buys confirmed on-chain; phantom positions cleared; replies)
 const db = require("./lib/db");
 const pump = require("./lib/pump");
 const ledger = require("./lib/ledger");
@@ -114,6 +114,10 @@ async function runAgent(agent, marketIn, solUsd) {
     p.pnl_pct = p.value_sol != null && Number(p.cost_sol) > 0 ? +(((p.value_sol - Number(p.cost_sol)) / Number(p.cost_sol)) * 100).toFixed(1) : null;
     p.held_min = p.opened_at ? Math.round((Date.now() - new Date(p.opened_at)) / 60000) : null;
   }
+
+  // Portfolio snapshot: wallet SOL + value of holdings, for the Portfolio chart on the profile.
+  const holdingsSol = positions.reduce((s, p) => s + (p.value_sol || 0), 0);
+  db.insert("agent_snapshots", { agent_id: agent.id, sol: +balance.toFixed(6), holdings_sol: +holdingsSol.toFixed(6), total_sol: +(balance + holdingsSol).toFixed(6) }).catch(() => {});
 
   // Auto-exit: the worker closes positions on the agent's exit rules without asking the brain. Guarantees sells happen.
   const tp = Number(agent.auto_tp_pct ?? 40), sl = Number(agent.auto_sl_pct ?? 20), maxHold = Number(agent.max_hold_min ?? 20);
