@@ -37,7 +37,11 @@ async function marketSnapshot() {
 
 async function runAgent(agent, market, solUsd) {
   const balance = await pump.getBalanceSol(agent.wallet_pubkey);
-  if (balance < MIN_BALANCE) return { handle: agent.handle, skipped: `balance ${balance.toFixed(3)} SOL` };
+  if (balance < MIN_BALANCE) {
+    // Record the check so unfunded agents go to the back of the queue instead of blocking funded ones.
+    await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance });
+    return { handle: agent.handle, skipped: `balance ${balance.toFixed(3)} SOL` };
+  }
 
   const [positions, recent, spent, launchesToday] = await Promise.all([
     db.select("positions", `agent_id=eq.${agent.id}&tokens=gt.0`),
@@ -88,8 +92,8 @@ async function runAgent(agent, market, solUsd) {
       if (!name || !symbol) throw new Error("bad launch fields");
       const devBuy = Math.min(Number(d.dev_buy_sol) || 0, maxBuy);
       const imageBlob = await generateImage(d.image_prompt || `${name} ($${symbol}) mascot, ${d.description || ""}`, IMAGE_TIMEOUT);
-      const { mint, signature } = await pump.createToken(agent.pp_api_key, { name, symbol, description: d.description, imageBlob, devBuySol: devBuy, twitter: agent.x_url || undefined });
-      await ledger.recordLaunch(agent, { mint, name, symbol, description: d.description, tx: signature, reasoning });
+      const { mint, signature, imageUrl } = await pump.createToken(agent.pp_api_key, { name, symbol, description: d.description, imageBlob, devBuySol: devBuy, twitter: agent.x_verified && agent.x_url ? agent.x_url : "https://x.com/funkosfun", website: "https://funkos.fun/" });
+      await ledger.recordLaunch(agent, { mint, name, symbol, description: d.description, image_url: imageUrl, tx: signature, reasoning });
       if (devBuy > 0) await ledger.recordTrade(agent, { mint, side: "buy", sol_amount: devBuy, token_amount: 0, tx: signature, reasoning: `Dev buy on $${symbol}.`, token_name: name, token_symbol: symbol });
       result.mint = mint;
     } else if (d.action === "callout") {

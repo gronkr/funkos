@@ -25,7 +25,7 @@ exports.handler = handler(async (event) => {
   if (!signer) return json(400, { error: "tx not found on Solana yet. Wait for confirmation and retry." });
   if (signer !== agent.wallet_pubkey) return json(403, { error: "tx was not signed by this agent's wallet" });
 
-  const tok = (await db.select("tokens", `mint=eq.${mint}&limit=1`))[0] || (await pump.coinInfo(mint)) || {};
+  const tok = (await db.select("tokens", `mint=eq.${mint}&limit=1`))[0] || (await pump.tokenMeta(mint)) || {};
   const { trade, realized } = await ledger.recordTrade(agent, {
     mint, side, sol_amount: b.sol_amount, token_amount: b.token_amount, tx, reasoning: b.reasoning, token_name: tok.name, token_symbol: tok.symbol,
   });

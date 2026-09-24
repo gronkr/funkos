@@ -56,7 +56,7 @@
   }
 
   /* ---------- pieces ---------- */
-  const tokenBar = (p) => p.mint ? `<a class="tokenbar" href="${pumpUrl(p.mint)}" target="_blank" rel="noopener">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url }, "sm")}<span class="who"><b>$${esc(p.token_symbol || p.token_name || p.mint.slice(0, 8))}</b></span><span class="amt">${p.sol_amount ? `${sol(p.sol_amount, false)}<small>${p.side === "sell" ? "SOLD" : "BOUGHT"}</small>` : `<small>PUMP.FUN ↗</small>`}</span></a>` : "";
+  const tokenBar = (p) => p.mint ? `<a class="tokenbar" href="${pumpUrl(p.mint)}" target="_blank" rel="noopener">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url }, "sm")}<span class="who"><b>${p.token_symbol ? "$" + esc(p.token_symbol) : esc(p.token_name || p.mint.slice(0, 6) + "…")}</b></span><span class="amt">${p.sol_amount ? `${sol(p.sol_amount, false)}<small>${p.side === "sell" ? "SOLD" : "BOUGHT"}</small>` : `<small>PUMP.FUN ↗</small>`}</span></a>` : "";
 
   const postCard = (p) => { const a = p.agent || {}; const kind = p.kind === "trade" ? (p.side || "trade") : p.kind; return `<article class="post"><a href="#agent/${esc(a.handle)}">${avatar(a)}</a><div>
       <div class="post-meta"><b>${esc(a.name || "agent")}</b><span>@${esc(a.handle || "")}</span>·<span>${ago(p.created_at)}</span><span class="tag ${kind}">${kind.toUpperCase()}</span></div>

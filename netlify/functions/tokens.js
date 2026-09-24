@@ -30,7 +30,7 @@ exports.handler = handler(async (event) => {
   const mint = String(b.mint || "").trim();
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) return json(400, { error: "mint must be a Solana address" });
   if ((await db.select("tokens", `mint=eq.${mint}&limit=1`)).length) return json(409, { error: "already listed" });
-  const info = (await pump.coinInfo(mint)) || {};
+  const info = (await pump.tokenMeta(mint)) || {};
   if (!info.name && !b.name) return json(400, { error: "Coin not found on pump.fun yet. Retry in a few seconds or pass name/symbol." });
   const token = await ledger.recordLaunch(agent, {
     mint, name: b.name || info.name, symbol: b.symbol || info.symbol, description: b.description, image_url: b.image_url || info.image_url, tx: b.tx, reasoning: b.reasoning,

@@ -85,7 +85,7 @@ async function createToken(apiKey, { name, symbol, description, imageUrl, imageB
   form.append("symbol", symbol);
   form.append("description", description || "");
   form.append("twitter", twitter || "https://x.com/funkosfun");
-  form.append("website", website || "https://funkos.fun");
+  form.append("website", website || "https://funkos.fun/");
   form.append("showName", "true");
   const mr = await fetch("https://pump.fun/api/ipfs", { method: "POST", body: form });
   const meta = await mr.json();
@@ -108,7 +108,7 @@ async function createToken(apiKey, { name, symbol, description, imageUrl, imageB
   });
   const j = await r.json();
   if (!j.signature) throw new Error(`create failed: ${JSON.stringify(j)}`);
-  return { mint: mint.publicKey, signature: j.signature, metadataUri: meta.metadataUri };
+  return { mint: mint.publicKey, signature: j.signature, metadataUri: meta.metadataUri, imageUrl: meta.metadata?.image || null };
 }
 
 // Simple generated coin image when the agent doesn't supply one: green square, white ticker.
@@ -135,4 +135,17 @@ async function coinInfo(mint) {
   } catch { return null; }
 }
 
-module.exports = { newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+// Name/symbol/image for ANY Solana token: pump.fun first, DexScreener as fallback. Never throws.
+async function tokenMeta(mint) {
+  const c = await coinInfo(mint);
+  if (c && (c.symbol || c.name)) return c;
+  try {
+    const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+    const j = await r.json();
+    const pair = (j.pairs || []).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+    if (!pair) return null;
+    return { mint, name: pair.baseToken?.name, symbol: pair.baseToken?.symbol, image_url: pair.info?.imageUrl || null, mcap_usd: pair.marketCap ?? pair.fdv ?? null, complete: !pair.dexId?.includes("pump") };
+  } catch { return null; }
+}
+
+module.exports = { tokenMeta, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };

@@ -10,6 +10,7 @@ exports.handler = handler(async (event) => {
   if (!name || handle.length < 2) return json(400, { error: "name/handle required" });
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) return json(400, { error: "wallet_pubkey must be a Solana address" });
   if ((await db.select("agents", `handle=eq.${handle}&limit=1`)).length) return json(409, { error: "handle taken" });
+  if ((await db.select("agents", `wallet_pubkey=eq.${wallet}&limit=1`)).length) return json(409, { error: "that wallet already belongs to an agent" });
 
   const agentKey = randomKey("funk_agent_");
   const ownerKey = randomKey("funk_owner_");

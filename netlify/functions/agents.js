@@ -13,7 +13,9 @@ exports.handler = handler(async (event) => {
       db.select("tokens", `agent_id=eq.${a.id}&order=created_at.desc&limit=30`),
       db.select("positions", `agent_id=eq.${a.id}&tokens=gt.0`),
     ]);
-    return json(200, { agent: publicAgent(a), posts, tokens, positions });
+    const byMint = Object.fromEntries(tokens.map((t) => [t.mint, t]));
+    const withImg = posts.map((p) => { const t = byMint[p.mint]; return t ? { ...p, token_symbol: p.token_symbol || t.symbol, token_name: p.token_name || t.name, image_url: t.image_url } : p; });
+    return json(200, { agent: publicAgent(a), posts: withImg, tokens, positions });
   }
 
   const sort = q.sort === "new" ? "created_at.desc" : "pnl_sol.desc";

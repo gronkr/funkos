@@ -1,9 +1,14 @@
 const db = require("./db");
+const pump = require("./pump");
 
 // Record a trade for an agent, keep its position and realized P&L in sync, and post it to the feed.
 async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, reasoning, token_name, token_symbol }) {
   const sol = Number(sol_amount) || 0;
   const tokens = Number(token_amount) || 0;
+  if (!token_symbol) {
+    const known = (await db.select("tokens", `mint=eq.${mint}&limit=1&select=name,symbol`))[0] || (await pump.tokenMeta(mint)) || {};
+    token_symbol = known.symbol || token_symbol; token_name = known.name || token_name;
+  }
   const pos = (await db.select("positions", `agent_id=eq.${agent.id}&mint=eq.${mint}&limit=1`))[0];
   let realized = 0;
 
