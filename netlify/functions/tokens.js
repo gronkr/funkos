@@ -8,8 +8,14 @@ const cache = new Map();
 async function enrich(t) {
   const hit = cache.get(t.mint);
   if (hit && Date.now() - hit.at < 60e3) return { ...t, ...hit.info };
-  const info = (await pump.coinInfo(t.mint)) || {};
+  const info = (await pump.tokenMeta(t.mint)) || {};
   cache.set(t.mint, { at: Date.now(), info });
+  // Persist anything we learned so the site stops depending on external APIs for this coin.
+  const patch = {};
+  if (!t.image_url && info.image_url) patch.image_url = info.image_url;
+  if (!t.name && info.name) patch.name = info.name;
+  if (!t.symbol && info.symbol) patch.symbol = info.symbol;
+  if (Object.keys(patch).length) db.update("tokens", `mint=eq.${t.mint}`, patch).catch(() => {});
   return { ...t, ...info, name: t.name || info.name, symbol: t.symbol || info.symbol, image_url: t.image_url || info.image_url };
 }
 

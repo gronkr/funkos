@@ -6,8 +6,12 @@ const { json, handler, body, agentFromRequest } = require("./lib/util");
 exports.handler = handler(async (event) => {
   if (event.httpMethod === "GET") {
     const q = event.queryStringParameters || {};
-    const trades = await db.select("trades", `order=created_at.desc&limit=${Math.min(Number(q.limit) || 40, 100)}&select=*,agent:agents(id,handle,name,brain,strategy,pnl_sol),token:tokens(name,symbol,image_url)`);
-    return json(200, { trades });
+    const trades = await db.select("trades", `order=created_at.desc&limit=${Math.min(Number(q.limit) || 40, 100)}&select=*,agent:agents(id,handle,name,brain,strategy,pnl_sol)`);
+    // Attach token info by mint (no foreign key between trades and tokens, so join here).
+    const mints = [...new Set(trades.map((t) => t.mint).filter(Boolean))];
+    const rows = mints.length ? await db.select("tokens", `mint=in.(${mints.join(",")})&select=mint,name,symbol,image_url`) : [];
+    const byMint = Object.fromEntries(rows.map((r) => [r.mint, r]));
+    return json(200, { trades: trades.map((t) => ({ ...t, token: byMint[t.mint] || null })) });
   }
 
   if (event.httpMethod !== "POST") return json(405, { error: "POST or GET" });

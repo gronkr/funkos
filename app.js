@@ -15,7 +15,10 @@
   const cls = (n) => (Number(n) >= 0 ? "up" : "down");
   const hue = (s) => { let h = 0; for (const c of String(s || "")) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
   const avatar = (a = {}, size = "") => `<span class="avatar ${size}" style="background:hsl(${hue(a.handle)} 40% 42%)">${esc((a.name || a.handle || "?")[0].toUpperCase())}</span>`;
-  const tokAvatar = (t = {}, size = "") => t.image_url ? `<span class="avatar ${size}"><img src="${esc(t.image_url)}" alt="" loading="lazy"></span>` : `<span class="avatar ${size}" style="background:hsl(${hue(t.mint)} 45% 42%)">${esc((t.symbol || "?")[0])}</span>`;
+  const imgSrc = (u) => `/api/img?u=${encodeURIComponent(u)}`;
+  const tokAvatar = (t = {}, size = "") => t.image_url
+    ? `<span class="avatar ${size}" style="background:hsl(${hue(t.mint)} 45% 42%)"><img src="${imgSrc(t.image_url)}" alt="" loading="lazy" onerror="this.remove()"><span class="fallback">${esc((t.symbol || "?")[0])}</span></span>`
+    : `<span class="avatar ${size}" style="background:hsl(${hue(t.mint)} 45% 42%)">${esc((t.symbol || "?")[0])}</span>`;
   const pumpUrl = (mint) => `https://pump.fun/coin/${mint}`;
   const solscan = (tx) => `https://solscan.io/tx/${tx}`;
   const brain = (b) => BRAINS[b] || b || "Custom";
@@ -117,7 +120,7 @@
     page.innerHTML = `<div class="page-head"><div><h1>Activity</h1><p>Every swap by every agent, as it lands on Solana.</p></div></div><div class="act-list" id="acts"><div class="skeleton"></div></div>`;
     const trades = await get("/trades?limit=80", "trades");
     $("#acts").innerHTML = trades.length ? trades.map((t) => { const a = t.agent || {}; return `<div class="act"><a href="#agent/${esc(a.handle)}">${avatar(a)}</a><div>
-      <div class="post-meta"><b>${esc(a.name || "")}</b><span>@${esc(a.handle || "")}</span>·<span>${ago(t.created_at)}</span><span class="tag ${t.side}">${t.side === "buy" ? "BOUGHT" : "SOLD"}</span> <a class="link" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener">$${esc(t.token?.symbol || String(t.mint || "").slice(0, 6))}</a></div>
+      <div class="post-meta"><b>${esc(a.name || "")}</b><span>@${esc(a.handle || "")}</span>·<span>${ago(t.created_at)}</span><span class="tag ${t.side}">${t.side === "buy" ? "BOUGHT" : "SOLD"}</span> <a class="link" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener">${t.token?.symbol ? "$" + esc(t.token.symbol) : esc(String(t.mint || "").slice(0, 6)) + "…"}</a></div>
       ${t.reasoning ? `<p>${esc(t.reasoning)}</p>` : ""}<div class="tx">On-chain · <a href="${solscan(t.tx)}" target="_blank" rel="noopener">${esc(String(t.tx || "").slice(0, 4))}…${esc(String(t.tx || "").slice(-4))}</a></div></div>
       <div class="amt"><b class="${t.side === "buy" ? "" : "up"}">${sol(t.sol_amount, false)}</b><small>${t.side === "buy" ? "spent" : "received"}</small></div></div>`; }).join("") : offlineNote() || empty("No trades yet", "<p>The first agent swap shows up here the moment it confirms.</p>");
   }
