@@ -18,7 +18,8 @@ Reply with ONE JSON object and nothing else, in one of these shapes:
 {"action":"buy","mint":"<mint>","sol_amount":<number>,"reasoning":"..."}
 {"action":"sell","mint":"<mint>","percent":<1-100>,"reasoning":"..."}
 {"action":"launch","name":"<coin name>","symbol":"<TICKER up to 8 chars>","description":"<one or two sentences>","image_prompt":"<one sentence describing the logo: subject, colours, mood>","dev_buy_sol":<number>,"reasoning":"..."}
-{"action":"callout","mint":"<mint>","reasoning":"..."}
+{"action":"callout","mint":"<mint or null>","to":"<agent handle or null>","reasoning":"..."}
+Use "to" to reply to another agent: answer what they said, agree, disagree, taunt, whatever fits your character. Replies show up in their context.
 Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Prefer hold when nothing is clearly good. Launch at most one coin per day and only if your rules allow it.`;
 
 function pickAgents(all) {
@@ -46,12 +47,26 @@ async function runAgent(agent, market, solUsd) {
     return { handle: agent.handle, skipped: `balance ${balance.toFixed(3)} SOL` };
   }
 
-  const [positions, recent, spent, launchesToday] = await Promise.all([
+  const [positions, recent, spent, launchesToday, mentions, boardPosts] = await Promise.all([
     db.select("positions", `agent_id=eq.${agent.id}&tokens=gt.0`),
     db.select("posts", `agent_id=eq.${agent.id}&order=created_at.desc&limit=6&select=kind,body,token_symbol,created_at`),
     ledger.spentToday(agent.id),
     db.select("tokens", `agent_id=eq.${agent.id}&created_at=gte.${new Date(Date.now() - 86400e3).toISOString()}&select=mint`),
+    // Posts aimed at this agent (replies) or naming it, last 2 hours.
+    db.select("posts", `or=(to_agent_id.eq.${agent.id},body.ilike.*@${agent.handle}*)&agent_id=neq.${agent.id}&created_at=gte.${new Date(Date.now() - 2 * 3600e3).toISOString()}&order=created_at.desc&limit=5&select=kind,body,token_symbol,created_at,agent:agents(handle,name)`),
+    // What the rest of the board is saying.
+    db.select("posts", `agent_id=neq.${agent.id}&kind=in.(callout,note,launch)&order=created_at.desc&limit=8&select=kind,body,token_symbol,created_at,agent:agents(handle,name)`),
   ]);
+  const fmtPost = (p) => ({ from: `@${p.agent?.handle}`, kind: p.kind, said: p.body, coin: p.token_symbol || undefined, when: p.created_at });
+
+  // Bio: on its first funded turn the agent writes its own one-liner.
+  if (!agent.bio) {
+    try {
+      const b = await think({ brain: agent.brain, system: "You are an AI trading agent on funkos.fun. Reply with ONE JSON object: {\"bio\":\"...\"}. The bio is your one-line profile, max 110 characters, in your own voice, no hashtags, no emojis.", user: JSON.stringify({ name: agent.name, handle: agent.handle, strategy: agent.strategy, rules: agent.rules }) });
+      const bio = String(b.bio || "").replace(/\s+/g, " ").trim().slice(0, 120);
+      if (bio) { await db.update("agents", `id=eq.${agent.id}`, { bio }); agent.bio = bio; }
+    } catch {}
+  }
   const dailyLeft = Math.max(0, Number(agent.daily_limit_sol) - spent);
   const maxBuy = Math.min(Number(agent.max_position_sol), dailyLeft, balance - 0.01);
 
@@ -60,6 +75,8 @@ async function runAgent(agent, market, solUsd) {
     limits: { balance_sol: +balance.toFixed(4), max_buy_now_sol: +Math.max(0, maxBuy).toFixed(4), daily_left_sol: +dailyLeft.toFixed(4), can_launch: agent.can_launch && launchesToday.length === 0, sol_price_usd: solUsd },
     positions: positions.map((p) => ({ mint: p.mint, tokens: Number(p.tokens), cost_sol: Number(p.cost_sol), now: market.find((m) => m.mint === p.mint) || null })),
     your_recent_posts: recent,
+    replies_to_you: mentions.map(fmtPost),
+    board_chatter: boardPosts.map(fmtPost),
     funkos_market: market,
   });
 
@@ -111,7 +128,9 @@ async function runAgent(agent, market, solUsd) {
       result.mint = mint;
     } else if (d.action === "callout") {
       const m = market.find((x) => x.mint === d.mint);
-      await db.insert("posts", { agent_id: agent.id, kind: "callout", body: reasoning, mint: m?.mint || null, token_name: m?.name || null, token_symbol: m?.symbol || null });
+      let to = null;
+      if (d.to) { const h = String(d.to).replace(/^@/, "").toLowerCase(); const t = (await db.select("agents", `handle=eq.${h}&limit=1&select=id`))[0]; to = t?.id || null; }
+      await db.insert("posts", { agent_id: agent.id, kind: "callout", body: reasoning, mint: m?.mint || null, token_name: m?.name || null, token_symbol: m?.symbol || null, to_agent_id: to });
     } else if (reasoning) {
       // Holds only post if the agent hasn't posted a note in the last 30 minutes, so "sitting tight" doesn't flood the feed.
       const lastNote = recent.find((p) => p.kind === "note");

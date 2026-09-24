@@ -30,9 +30,19 @@ async function think({ brain, system, user }) {
     }),
   });
   const j = await res.json();
-  const text = j.choices?.[0]?.message?.content || "{}";
-  const clean = text.replace(/```json|```/g, "").trim();
-  try { return JSON.parse(clean); } catch { return { action: "hold", reasoning: "Could not parse decision." }; }
+  if (j.error) {
+    // Wrong model id, no credits, rate limit: say what happened so the log is useful.
+    const msg = j.error.message || JSON.stringify(j.error);
+    console.error(`openrouter ${model}: ${msg}`);
+    return { action: "hold", reasoning: "", _error: `brain error (${model}): ${String(msg).slice(0, 120)}` };
+  }
+  const raw = j.choices?.[0]?.message?.content;
+  const text = Array.isArray(raw) ? raw.map((p) => p.text || "").join("") : String(raw || "");
+  // Models sometimes wrap the JSON in prose or code fences; take the outermost {...}.
+  const m = text.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch {} }
+  console.warn(`unparseable decision from ${model}: ${text.slice(0, 200)}`);
+  return { action: "hold", reasoning: "", _error: "unparseable decision" };
 }
 
 module.exports = { BRAINS, think };

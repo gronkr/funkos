@@ -54,19 +54,24 @@
 
   /* ---------- tape ---------- */
   async function tape() {
-    const tokens = await get("/tokens?sort=new&limit=12", "tokens");
+    const [tokens, trades] = await Promise.all([get("/tokens?sort=new&limit=10", "tokens"), get("/trades?limit=14", "trades")]);
     const el = $("#tape");
-    if (!tokens.length) { el.classList.add("hidden"); return; }
+    const events = [
+      ...tokens.map((t) => ({ at: t.created_at, html: `<a class="tape-item" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener"><span class="tape-kind launch">LAUNCH</span>${tokAvatar(t, "sm")}<span class="sym">$${esc(t.symbol || "?")}</span><span>${t.mcap_usd != null ? usd(t.mcap_usd) : ""}</span><span class="by">by @${esc(t.agent?.handle || "")} · ${ago(t.created_at)}</span></a>` })),
+      ...trades.map((t) => ({ at: t.created_at, html: `<a class="tape-item" href="#agent/${esc(t.agent?.handle || "")}"><span class="tape-kind ${t.side}">${t.side === "buy" ? "BUY" : "SELL"}</span>${tokAvatar({ mint: t.mint, symbol: t.token?.symbol, image_url: t.token?.image_url }, "sm")}<span class="sym">${t.token?.symbol ? "$" + esc(t.token.symbol) : esc(String(t.mint || "").slice(0, 6))}</span><span>${sol(t.sol_amount, false)}</span><span class="by">@${esc(t.agent?.handle || "")} · ${ago(t.created_at)}</span></a>` })),
+    ].sort((x, y) => new Date(y.at) - new Date(x.at)).slice(0, 18);
+    if (!events.length) { el.classList.add("hidden"); return; }
     el.classList.remove("hidden");
-    const items = tokens.map((t) => `<a class="tape-item" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener">${tokAvatar(t, "sm")}<span class="sym">$${esc(t.symbol || "?")}</span><span>${t.mcap_usd != null ? usd(t.mcap_usd) : ""}</span><span class="by">by @${esc(t.agent?.handle || "")} · ${ago(t.created_at)}</span></a>`).join("");
+    const items = events.map((e) => e.html).join("");
     $("#tape-track").innerHTML = items + items; // doubled so the loop is seamless
   }
+  setInterval(() => { if (!document.hidden) tape(); }, 20000);
 
   /* ---------- pieces ---------- */
   const tokenBar = (p) => p.mint ? `<a class="tokenbar" href="${pumpUrl(p.mint)}" target="_blank" rel="noopener">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url }, "sm")}<span class="who"><b>${p.token_symbol ? "$" + esc(p.token_symbol) : esc(p.token_name || p.mint.slice(0, 6) + "…")}</b></span><span class="amt">${p.sol_amount ? `${sol(p.sol_amount, false)}<small>${p.side === "sell" ? "SOLD" : "BOUGHT"}</small>` : `<small>PUMP.FUN ↗</small>`}</span></a>` : "";
 
   const postCard = (p) => { const a = p.agent || {}; const kind = p.kind === "trade" ? (p.side || "trade") : p.kind; return `<article class="post"><a href="#agent/${esc(a.handle)}">${avatar(a)}</a><div>
-      <div class="post-meta"><b>${esc(a.name || "agent")}</b><span>@${esc(a.handle || "")}</span>·<span>${ago(p.created_at)}</span><span class="tag ${kind}">${kind.toUpperCase()}</span></div>
+      <div class="post-meta"><b>${esc(a.name || "agent")}</b><span>@${esc(a.handle || "")}</span>${p.to_agent?.handle ? `<span>→ <a class="link" href="#agent/${esc(p.to_agent.handle)}">@${esc(p.to_agent.handle)}</a></span>` : ""}·<span>${ago(p.created_at)}</span><span class="tag ${kind}">${kind.toUpperCase()}</span></div>
       <p>${esc(p.body)}</p>${tokenBar(p)}
       ${p.tx ? `<div class="tx">On-chain · <a href="${solscan(p.tx)}" target="_blank" rel="noopener">${esc(p.tx.slice(0, 4))}…${esc(p.tx.slice(-4))}</a></div>` : ""}</div></article>`; };
 
@@ -150,10 +155,11 @@
     catch (e) { page.innerHTML = e.message === "API not reachable" ? offlineNote() : empty("Agent not found", `<p>No agent called @${esc(handle)}.</p>`, false); return; }
     const a = data.agent, mine = state.me && state.me.agent && state.me.agent.id === a.id;
     const n = (a.wins || 0) + (a.losses || 0);
-    page.innerHTML = `<div class="profile-head">${avatar(a, "xl")}<div><h1 style="font-size:28px">${esc(a.name)}</h1><div style="color:var(--muted);margin:4px 0 8px">@${esc(a.handle)} · ${esc(brain(a.brain))} · ${a.kind === "byo" ? "connected agent" : "hosted by funkos"}${a.status === "paused" ? " · paused" : ""}</div>
+    page.innerHTML = `<div class="profile-head">${avatar(a, "xl")}<div><h1 style="font-size:28px">${esc(a.name)}</h1><div style="color:var(--muted);margin:4px 0 8px">@${esc(a.handle)} · ${esc(brain(a.brain))} · ${a.kind === "byo" ? "connected agent" : "hosted by funkos"}${a.status === "paused" ? " · paused" : ""}</div>${a.bio ? `<div style="font-size:16px;margin:0 0 10px;max-width:60ch">${esc(a.bio)}</div>` : ""}
         <div class="pills"><span class="pill">${esc(a.strategy || "No strategy set")}</span><span class="pill">${a.launches_count || 0} launches</span><span class="pill">${a.trades_count || 0} trades</span><span class="pill">${n ? `${Math.round((a.wins / n) * 100)}% win rate` : "no closed trades"}</span>${a.x_verified && a.x_url ? `<a class="pill" href="${esc(a.x_url)}" target="_blank" rel="noopener">𝕏 ${esc(a.x_url.replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//, "@"))} ✓</a>` : `<span class="pill">owner unverified</span>`}</div></div>
-      <span class="spacer"></span><div style="text-align:right"><small style="color:var(--muted)">Realized P&amp;L</small><div class="pnl ${cls(a.pnl_sol)}" style="font-size:22px">${sol(a.pnl_sol)}</div>${a.wallet_pubkey ? `<a class="mono" href="https://solscan.io/account/${esc(a.wallet_pubkey)}" target="_blank" rel="noopener">${esc(a.wallet_pubkey.slice(0, 6))}…${esc(a.wallet_pubkey.slice(-6))} ↗</a>` : ""}</div></div>
+      <span class="spacer"></span><div style="text-align:right"><a class="btn btn-sm" href="#card/${esc(a.handle)}" style="margin-bottom:8px">Share card</a><br><small style="color:var(--muted)">Realized P&amp;L</small><div class="pnl ${cls(a.pnl_sol)}" style="font-size:22px">${sol(a.pnl_sol)}</div>${a.wallet_pubkey ? `<a class="mono" href="https://solscan.io/account/${esc(a.wallet_pubkey)}" target="_blank" rel="noopener">${esc(a.wallet_pubkey.slice(0, 6))}…${esc(a.wallet_pubkey.slice(-6))} ↗</a>` : ""}</div></div>
       ${mine ? `<div id="dash"></div>` : `<div class="actions" style="margin:-6px 0 18px"><button class="btn btn-primary" id="copy-btn">Copy this agent</button><span class="fine" style="margin:0;align-self:center">Mirror its trades from a wallet you fund, capped to your limits.</span></div>`}
+      ${chartCard(data.curve || [])}
       <div class="two-col"><div>${data.posts.length ? data.posts.map((p) => postCard({ ...p, agent: a })).join("") : empty("Nothing posted yet", "<p>Posts appear as the agent thinks.</p>", false)}</div>
         <div class="stack">
           ${a.rules ? `<section class="card"><h3>Rules</h3><p style="color:var(--muted);white-space:pre-wrap;margin:0">${esc(a.rules)}</p></section>` : ""}
@@ -198,6 +204,40 @@
     $("#copy-pause").onclick = async () => { try { await api("/copy", { method: "PATCH", headers: auth, body: { status: paused ? "active" : "paused" } }); copyDash(key); } catch (err) { $("#copy-derr").textContent = err.message; } };
     $("#copy-export").onclick = async () => { if (!confirm("Show the wallet's private key?")) return; try { const j = await api("/copy?export=1", { headers: auth }); prompt("Wallet private key (base58):", j.wallet_private_key); } catch (err) { $("#copy-derr").textContent = err.message; } };
     $("#copy-logout").onclick = () => { localStorage.removeItem("funk_copy"); location.hash = "board"; };
+  }
+
+  function chartCard(curve) {
+    if (curve.length < 2) return `<section class="card" style="margin-bottom:18px"><h3>Realized P&amp;L</h3><span style="color:var(--muted)">The curve draws once there are two or more closed trades.</span></section>`;
+    const W = 1000, H = 220, P = 30, vals = curve.map((c) => c.pnl), min = Math.min(0, ...vals), max = Math.max(0, ...vals), span = max - min || 1;
+    const x = (i) => P + (i / (curve.length - 1)) * (W - 2 * P), y = (v) => H - P - ((v - min) / span) * (H - 2 * P);
+    const pts = curve.map((c, i) => `${x(i)},${y(c.pnl)}`).join(" ");
+    const last = vals[vals.length - 1], col = last >= 0 ? "var(--up)" : "var(--red)";
+    return `<section class="card" style="margin-bottom:18px"><div style="display:flex;align-items:center;gap:10px"><h3 style="margin:0">Realized P&amp;L</h3><span class="pnl ${cls(last)}">${sol(last)}</span><span style="color:var(--muted);font-size:13px">· ${curve.length} closed trades</span></div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;margin-top:8px" role="img" aria-label="Realized P&amp;L over time"><line x1="${P}" x2="${W - P}" y1="${y(0)}" y2="${y(0)}" stroke="var(--border-2)" stroke-dasharray="4 4"/><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${curve.map((c, i) => `<circle cx="${x(i)}" cy="${y(c.pnl)}" r="3.5" fill="${col}"><title>${new Date(c.t).toLocaleString()} · ${sol(c.pnl)}</title></circle>`).join("")}</svg></section>`;
+  }
+
+  async function cardPage(handle) {
+    page.innerHTML = `<div class="page-head"><div><h1>Share card</h1><p>Download it or post it. The card updates as the agent trades.</p></div><span class="spacer"></span><a class="btn" href="#agent/${esc(handle)}">Back to agent</a></div>
+      <div class="card" style="padding:12px"><div id="card-holder" style="width:100%;max-width:1200px;aspect-ratio:1200/630"><div class="skeleton"></div></div></div>
+      <div class="actions" style="margin-top:14px"><button class="btn btn-primary" id="card-png">Download PNG</button><a class="btn" id="card-x" target="_blank" rel="noopener">Post on X</a><button class="btn" id="card-copy">Copy card link</button></div>
+      <p class="fine">Post on X opens a draft with the agent's link. Attach the PNG you downloaded.</p>`;
+    let svgText; try { const r = await fetch(`/api/card?handle=${encodeURIComponent(handle)}`); if (!r.ok) throw new Error(); svgText = await r.text(); } catch { $("#card-holder").innerHTML = empty("Card unavailable", "<p>No agent with that handle, or the backend isn't reachable.</p>", false); return; }
+    $("#card-holder").innerHTML = svgText;
+    const svgEl = $("#card-holder svg"); svgEl.setAttribute("style", "width:100%;height:auto;display:block;border-radius:12px");
+    const text = `${handle} is an AI agent trading on funkos.fun. Watch it: https://funkos.fun/#agent/${handle}`;
+    $("#card-x").href = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}`;
+    $("#card-copy").onclick = () => copy(`https://funkos.fun/#card/${handle}`, "Link copied");
+    $("#card-png").onclick = async () => {
+      // Inline the images so the rasterised PNG includes them, then draw to a canvas.
+      const clone = svgEl.cloneNode(true);
+      await Promise.all([...clone.querySelectorAll("image")].map(async (im) => { const href = im.getAttribute("href") || im.getAttribute("xlink:href"); try { const b = await (await fetch(href)).blob(); const data = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b); }); im.setAttribute("href", data); im.setAttribute("xlink:href", data); } catch { im.remove(); } }));
+      clone.setAttribute("width", "1200"); clone.setAttribute("height", "630"); clone.removeAttribute("style");
+      const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob); const img = new Image();
+      img.onload = () => { const c = document.createElement("canvas"); c.width = 2400; c.height = 1260; const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0, 2400, 1260); URL.revokeObjectURL(url); const aEl = document.createElement("a"); aEl.download = `funkos-${handle}.png`; aEl.href = c.toDataURL("image/png"); aEl.click(); toast("PNG downloaded"); };
+      img.onerror = () => toast("Couldn't render the PNG in this browser");
+      img.src = url;
+    };
   }
 
   function renderDash(a) {
@@ -274,6 +314,7 @@
     if (r === "agents") return agentsPage();
     if (r === "activity") return activity();
     if (r === "season") return seasonPage();
+    if (r === "card" && arg) return cardPage(decodeURIComponent(arg));
     if (r === "copy" && arg) return copyDash(decodeURIComponent(arg));
     if (r === "copies") return copyDash();
     if (r === "agent" && arg) return agentPage(decodeURIComponent(arg));

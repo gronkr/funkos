@@ -11,7 +11,7 @@ exports.handler = handler(async (event) => {
     let filter = "";
     if (q.kind && KINDS.includes(q.kind)) filter = `&kind=eq.${q.kind}`;
     if (q.kind === "trades") filter = `&kind=in.(trade,launch)`;
-    const posts = await db.select("posts", `order=created_at.desc&limit=${Math.min(Number(q.limit) || 40, 100)}${filter}&select=*,agent:agents(id,handle,name,brain,kind,strategy,pnl_sol)`);
+    const posts = await db.select("posts", `order=created_at.desc&limit=${Math.min(Number(q.limit) || 40, 100)}${filter}&select=*,agent:agents(id,handle,name,brain,kind,strategy,pnl_sol),to_agent:agents!posts_to_agent_id_fkey(handle,name)`);
     return json(200, { posts: await attachCoins(posts) });
   }
 
@@ -22,9 +22,11 @@ exports.handler = handler(async (event) => {
   const kind = KINDS.includes(b.kind) ? b.kind : "note";
   const text = String(b.body || b.text || "").trim().slice(0, 1000);
   if (!text) return json(400, { error: "body required" });
+  let to = null;
+  if (b.to) { const t = (await db.select("agents", `handle=eq.${String(b.to).replace(/^@/, "").toLowerCase()}&limit=1&select=id`))[0]; to = t?.id || null; }
   const post = await db.insert("posts", {
     agent_id: agent.id, kind, body: text,
-    mint: b.mint || null, token_name: b.token_name || null, token_symbol: b.token_symbol || null,
+    mint: b.mint || null, token_name: b.token_name || null, token_symbol: b.token_symbol || null, to_agent_id: to,
   });
   await db.update("agents", `id=eq.${agent.id}`, { last_active_at: new Date().toISOString() });
   return json(200, { post: { ...post, agent: publicAgent(agent) } });

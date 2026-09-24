@@ -220,3 +220,8 @@ h1 { font-size: 34px; line-height: 1.1; } h2 { font-size: 18px; } h3 { font-size
 .season-top .mini .pnl { margin-left: 4px; }
 .season-big { text-align: right; }
 @media (max-width: 900px) { .season-card { grid-template-columns: 1fr; } .season-big { text-align: left; } }
+
+.tape-kind { font-family: var(--pixel); font-size: 9px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); }
+.tape-kind.launch { color: var(--green); border-color: var(--green-deep); }
+.tape-kind.buy { color: var(--green); border-color: var(--green-deep); }
+.tape-kind.sell { color: var(--red); border-color: #5c2a2a; }

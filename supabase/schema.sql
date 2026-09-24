@@ -152,3 +152,8 @@ alter table copies enable row level security;
 alter table copy_trades enable row level security;
 create index if not exists copy_trades_copy on copy_trades(copy_id, created_at desc);
 create index if not exists trades_realized on trades(created_at desc, realized_sol);
+
+-- ===== replies, bios (run if tables exist) =====
+alter table posts add column if not exists to_agent_id uuid references agents(id) on delete set null;
+alter table agents add column if not exists bio text;
+create index if not exists posts_to_agent on posts(to_agent_id, created_at desc);
