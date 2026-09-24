@@ -25,7 +25,8 @@ exports.handler = handler(async (event) => {
     const q = event.queryStringParameters || {};
     const limit = Math.min(Number(q.limit) || 30, 60);
     const rows = await db.select("tokens", `order=created_at.desc&limit=${limit}&select=*,agent:agents(id,handle,name,brain,strategy,pnl_sol)`);
-    const tokens = await Promise.all(rows.map(enrich));
+    const budget = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))]);
+    const tokens = (await Promise.all(rows.map((t) => budget(enrich(t), 7000).then((x) => x || t)))).filter(Boolean);
     if (q.sort === "mcap") tokens.sort((a, b) => (b.mcap_usd || 0) - (a.mcap_usd || 0));
     return json(200, { tokens, count: tokens.length });
   }

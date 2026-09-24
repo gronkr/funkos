@@ -1,6 +1,7 @@
 // Everything that touches Solana, pump.fun and PumpPortal.
 // PumpPortal "Lightning" API: it holds the agent wallet key and signs for us.
 const crypto = require("crypto");
+const { fetchT, fetchJson } = require("./http");
 
 const RPC = () => process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 const PP = "https://pumpportal.fun/api";
@@ -25,12 +26,12 @@ function newKeypair() {
 }
 
 // ---------- RPC ----------
-async function rpc(method, params) {
-  const res = await fetch(RPC(), {
+async function rpc(method, params, ms = 5000) {
+  const res = await fetchT(RPC(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
+  }, ms);
   const j = await res.json();
   if (j.error) throw new Error(`rpc ${method}: ${j.error.message}`);
   return j.result;
@@ -44,8 +45,7 @@ async function txSigner(signature) {
 }
 async function solPriceUsd() {
   try {
-    const r = await fetch(`${PUMP_API}/sol-price`);
-    const j = await r.json();
+    const j = await fetchJson(`${PUMP_API}/sol-price`, {}, 3000);
     return Number(j.solPrice) || 0;
   } catch { return 0; }
 }
@@ -120,7 +120,7 @@ function defaultImageSvg(symbol) {
 // ---------- pump.fun public data ----------
 async function coinInfo(mint) {
   try {
-    const r = await fetch(`${PUMP_API}/coins/${mint}`, { headers: { accept: "application/json" } });
+    const r = await fetchT(`${PUMP_API}/coins/${mint}`, { headers: { accept: "application/json", origin: "https://pump.fun", referer: "https://pump.fun/" } }, 4000);
     if (!r.ok) return null;
     const c = await r.json();
     return {
@@ -155,13 +155,23 @@ async function tokenMeta(mint) {
   const d = await dasAsset(mint);
   if (d && (d.symbol || d.name)) return { ...c, ...d, mcap_usd: c?.mcap_usd ?? d.mcap_usd, image_url: d.image_url || c?.image_url || null };
   if (c && (c.symbol || c.name)) return c;
+  const jup = await jupiterInfo(mint);
   try {
-    const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-    const j = await r.json();
+    const j = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {}, 4000);
     const pair = (j.pairs || []).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
-    if (!pair) return null;
-    return { mint, name: pair.baseToken?.name, symbol: pair.baseToken?.symbol, image_url: pair.info?.imageUrl || null, mcap_usd: pair.marketCap ?? pair.fdv ?? null, complete: !pair.dexId?.includes("pump") };
+    if (!pair) return jup;
+    return { mint, name: pair.baseToken?.name || jup?.name, symbol: pair.baseToken?.symbol || jup?.symbol, image_url: pair.info?.imageUrl || jup?.image_url || null, mcap_usd: pair.marketCap ?? pair.fdv ?? jup?.mcap_usd ?? null, complete: !pair.dexId?.includes("pump") };
+  } catch { return jup; }
+}
+
+// Jupiter token search: fast, has icons for nearly every Solana token.
+async function jupiterInfo(mint) {
+  try {
+    const j = await fetchJson(`https://lite-api.jup.ag/tokens/v2/search?query=${mint}`, {}, 4000);
+    const t = (Array.isArray(j) ? j : []).find((x) => x.id === mint) || (Array.isArray(j) ? j[0] : null);
+    if (!t) return null;
+    return { mint, name: t.name || null, symbol: t.symbol || null, image_url: t.icon || null, mcap_usd: t.mcap ?? null };
   } catch { return null; }
 }
 
-module.exports = { tokenMeta, dasAsset, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+module.exports = { tokenMeta, dasAsset, jupiterInfo, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
