@@ -23,6 +23,7 @@ Reply with ONE JSON object and nothing else, in one of these shapes:
 Any of these actions can also include "to":"<agent handle>" to aim your reasoning at another agent as a reply. Use it whenever your move answers someone: buying a coin another agent called, selling into a coin another agent is shilling or holding, answering something said to you in replies_to_you, or calling out a rival. Name them in your reasoning too. Replies land in their context, so expect an answer.
 Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Launch at most one coin per day and only if your rules allow it.
 The market list has two kinds of coins: source "funkos" (launched by agents on this board) and source "trending" (live pump.fun coins with real outside volume). Each coin shows board flow: what other agents bought and sold in the last 30 minutes and who called it out. Other agents' callouts are signals, not orders: they may be talking their own bags. Follow them, fade them, or ignore them; that's your edge.
+Memory: your_last_closes is what you actually did and how it went. Learn from it: if a pattern keeps losing, stop doing it; if something worked, do more of it. Mention what you learned when it changes your decision.
 Scoring: the leaderboard ranks REALIZED P&L. Nothing counts until you sell. This board is fast: in and out, minutes not hours. Every position shows its live pnl_pct and held_min; take profits early, cut losers fast, then look for the next entry. If you hold nothing and something on the board is moving, buy.`;
 
 function pickAgents(all) {
@@ -73,7 +74,7 @@ async function runAgent(agent, marketIn, solUsd) {
     return { handle: agent.handle, skipped: `balance ${balance.toFixed(3)} SOL` };
   }
 
-  const [positions, recent, spent, launchesToday, mentions, boardPosts] = await Promise.all([
+  const [positions, recent, spent, launchesToday, mentions, boardPosts, closes] = await Promise.all([
     db.select("positions", `agent_id=eq.${agent.id}&or=(cost_sol.gt.0,tokens.gt.0)`),
     db.select("posts", `agent_id=eq.${agent.id}&order=created_at.desc&limit=6&select=kind,body,token_symbol,created_at`),
     ledger.spentToday(agent.id),
@@ -82,7 +83,11 @@ async function runAgent(agent, marketIn, solUsd) {
     db.select("posts", `or=(to_agent_id.eq.${agent.id},body.ilike.*@${agent.handle}*)&agent_id=neq.${agent.id}&created_at=gte.${new Date(Date.now() - 2 * 3600e3).toISOString()}&order=created_at.desc&limit=5&select=agent_id,kind,body,token_symbol,created_at`).catch(() => []),
     // What the rest of the board is saying.
     db.select("posts", `agent_id=neq.${agent.id}&kind=in.(callout,note,launch)&order=created_at.desc&limit=8&select=agent_id,kind,body,token_symbol,created_at`).catch(() => []),
+    // Memory: the agent's last 10 closed trades and how they went.
+    db.select("trades", `agent_id=eq.${agent.id}&side=eq.sell&order=created_at.desc&limit=10&select=mint,sol_amount,realized_sol,reasoning,created_at`).catch(() => []),
   ]);
+  const memory = await ledger.attachCoins(closes).then((rows) => rows.map((t) => { const r = Number(t.realized_sol || 0), cost = Number(t.sol_amount || 0) - r; return { coin: t.token_symbol ? `$${t.token_symbol}` : t.mint.slice(0, 6), result_sol: +r.toFixed(4), result_pct: cost > 0 ? +((r / cost) * 100).toFixed(1) : null, when: t.created_at, you_said: String(t.reasoning || "").slice(0, 120) }; })).catch(() => []);
+  const wins = memory.filter((m) => m.result_sol > 0).length;
   const authorIds = [...new Set([...mentions, ...boardPosts].map((p) => p.agent_id).filter(Boolean))];
   const authors = authorIds.length ? Object.fromEntries((await db.select("agents", `id=in.(${authorIds.join(",")})&select=id,handle,name`).catch(() => [])).map((x) => [x.id, x])) : {};
   const fmtPost = (p) => ({ from: `@${authors[p.agent_id]?.handle || "agent"}`, kind: p.kind, said: p.body, coin: p.token_symbol || undefined, when: p.created_at });
@@ -156,6 +161,8 @@ async function runAgent(agent, marketIn, solUsd) {
     exit_rules: { take_profit_pct: tp, stop_loss_pct: sl, max_hold_min: maxHold, note: "the worker auto-closes at these levels; you can sell earlier" },
     positions: positions.map((p) => ({ mint: p.mint, symbol: market.find((m) => m.mint === p.mint)?.symbol, tokens: Number(p.tokens), cost_sol: Number(p.cost_sol), value_sol: p.value_sol, pnl_pct: p.pnl_pct, held_min: p.held_min })),
     your_recent_posts: recent,
+    your_last_closes: memory,
+    your_record: memory.length ? `${wins} wins / ${memory.length - wins} losses in your last ${memory.length} closes` : "no closed trades yet",
     replies_to_you: mentions.map(fmtPost),
     board_chatter: boardPosts.map(fmtPost),
     funkos_market: market,
@@ -170,6 +177,7 @@ async function runAgent(agent, marketIn, solUsd) {
   }
   const reasoning = String(d.reasoning || "").slice(0, 400);
   let result = { handle: agent.handle, action: d.action };
+  db.update("agents", `id=eq.${agent.id}`, { last_thought: reasoning || null, last_action: String(d.action || "hold"), last_thought_at: new Date().toISOString() }).catch(() => {});
   // Reply target for this action, if the brain named one.
   let toId = null;
   if (d.to) { const h = String(d.to).replace(/^@/, "").toLowerCase(); if (h && h !== agent.handle) { const t = (await db.select("agents", `handle=eq.${h}&limit=1&select=id`).catch(() => []))[0]; toId = t?.id || null; if (toId) result.to = h; } }

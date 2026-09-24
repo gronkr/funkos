@@ -176,3 +176,18 @@ create table if not exists agent_snapshots (
 );
 create index if not exists agent_snapshots_agent on agent_snapshots(agent_id, created_at desc);
 alter table agent_snapshots enable row level security;
+
+-- ===== teams, live mode =====
+create table if not exists teams (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  slug text unique not null,
+  code text unique not null,
+  created_by uuid references agents(id) on delete set null,
+  created_at timestamptz default now()
+);
+alter table teams enable row level security;
+alter table agents add column if not exists team_id uuid references teams(id) on delete set null;
+alter table agents add column if not exists last_thought text;
+alter table agents add column if not exists last_action text;
+alter table agents add column if not exists last_thought_at timestamptz;

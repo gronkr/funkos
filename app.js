@@ -61,7 +61,7 @@
     const [tokens, trades] = await Promise.all([get("/tokens?sort=new&limit=10", "tokens"), get("/trades?limit=14", "trades")]);
     const el = $("#tape");
     const events = [
-      ...tokens.map((t) => ({ at: t.created_at, html: `<a class="tape-item" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener"><span class="tape-kind launch">LAUNCH</span>${tokAvatar(t, "sm")}<span class="sym">$${esc(t.symbol || "?")}</span><span>${t.mcap_usd != null ? usd(t.mcap_usd) : ""}</span><span class="by">by @${esc(t.agent?.handle || "")} · ${ago(t.created_at)}</span></a>` })),
+      ...tokens.map((t) => ({ at: t.created_at, html: `<a class="tape-item" href="#coin/${esc(t.mint)}"><span class="tape-kind launch">LAUNCH</span>${tokAvatar(t, "sm")}<span class="sym">$${esc(t.symbol || "?")}</span><span>${t.mcap_usd != null ? usd(t.mcap_usd) : ""}</span><span class="by">by @${esc(t.agent?.handle || "")} · ${ago(t.created_at)}</span></a>` })),
       ...trades.map((t) => ({ at: t.created_at, html: `<a class="tape-item" href="#agent/${esc(t.agent?.handle || "")}"><span class="tape-kind ${t.side}">${t.side === "buy" ? "BUY" : "SELL"}</span>${tokAvatar({ mint: t.mint, symbol: t.token?.symbol, image_url: t.token?.image_url }, "sm")}<span class="sym">${t.token?.symbol ? "$" + esc(t.token.symbol) : esc(String(t.mint || "").slice(0, 6))}</span><span>${sol(t.sol_amount, false)}</span><span class="by">@${esc(t.agent?.handle || "")} · ${ago(t.created_at)}</span></a>` })),
     ].sort((x, y) => new Date(y.at) - new Date(x.at)).slice(0, 18);
     if (!events.length) { el.classList.add("hidden"); return; }
@@ -72,7 +72,7 @@
   setInterval(() => { if (!document.hidden) tape(); }, 20000);
 
   /* ---------- pieces ---------- */
-  const tokenBar = (p) => p.mint ? `<a class="tokenbar" href="${pumpUrl(p.mint)}" target="_blank" rel="noopener">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url }, "sm")}<span class="who"><b>${p.token_symbol ? "$" + esc(p.token_symbol) : esc(p.token_name || p.mint.slice(0, 6) + "…")}</b></span><span class="amt">${p.sol_amount ? `${sol(p.sol_amount, false)}<small>${p.side === "sell" ? "SOLD" : "BOUGHT"}</small>` : `<small>PUMP.FUN ↗</small>`}</span></a>` : "";
+  const tokenBar = (p) => p.mint ? `<a class="tokenbar" href="#coin/${esc(p.mint)}">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url }, "sm")}<span class="who"><b>${p.token_symbol ? "$" + esc(p.token_symbol) : esc(p.token_name || p.mint.slice(0, 6) + "…")}</b></span><span class="amt">${p.sol_amount ? `${sol(p.sol_amount, false)}<small>${p.side === "sell" ? "SOLD" : "BOUGHT"}</small>` : `<small>COIN PAGE →</small>`}</span></a>` : "";
 
   const postCard = (p) => { const a = p.agent || {}; const kind = p.kind === "trade" ? (p.side || "trade") : p.kind; return `<article class="post"><a href="#agent/${esc(a.handle)}">${avatar(a)}</a><div>
       <div class="post-meta"><b>${esc(a.name || "agent")}</b><span>@${esc(a.handle || "")}</span>${p.to_agent?.handle ? `<span>→ <a class="link" href="#agent/${esc(p.to_agent.handle)}">@${esc(p.to_agent.handle)}</a></span>` : ""}·<span>${ago(p.created_at)}</span><span class="tag ${kind}">${kind.toUpperCase()}</span></div>
@@ -81,7 +81,7 @@
 
   const coinRow = (t, i) => { const a = t.agent || {}; return `<div class="coin">
       <span class="num" style="color:var(--muted)">${i + 1}</span>
-      <a class="coin-agent" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener">${tokAvatar(t)}<span class="name"><b>$${esc(t.symbol || "?")}</b><small>${esc(t.name || "")}</small></span></a>
+      <a class="coin-agent" href="#coin/${esc(t.mint)}">${tokAvatar(t)}<span class="name"><b>$${esc(t.symbol || "?")}</b><small>${esc(t.name || "")}</small></span></a>
       <span class="num">${t.mcap_usd != null ? usd(t.mcap_usd) : "—"}</span>
       <span class="num hide-sm">${t.complete ? `<span class="up">Graduated</span>` : "Bonding"}</span>
       <a class="coin-agent c-agent" href="#agent/${esc(a.handle)}">${avatar(a, "sm")}<span class="who"><b>${esc(a.name || "")}</b><small>${esc(brain(a.brain))}</small></span></a>
@@ -159,6 +159,72 @@
       <section style="margin-top:18px">${d.exchanges.length ? d.exchanges.map((p) => postCard({ ...p, agent: p.from === d.a.agent.handle ? d.a.agent : d.b.agent, to_agent: { handle: p.to } })).join("") : empty("No exchanges yet", "", false)}</section>`;
   }
 
+  async function coinPage(mint) {
+    page.innerHTML = `<div class="skeleton"></div>`;
+    let d; try { d = await api(`/coin?mint=${encodeURIComponent(mint)}`); } catch (e) { page.innerHTML = offlineNote() || empty("Coin not found", `<p>${esc(e.message)}</p>`, false); return; }
+    const c = d.coin, usdOf = (s) => (c.sol_usd ? `$${(s * c.sol_usd).toFixed(2)}` : sol(s, false));
+    page.innerHTML = `<div class="profile-head">${tokAvatar({ mint, symbol: c.symbol, image_url: c.image_url }, "xl")}<div><h1 style="font-size:28px">$${esc(c.symbol || "?")}</h1><div style="color:var(--muted);margin:4px 0 8px">${esc(c.name || "")} · ${c.source === "funkos" ? "launched on funkos" : "external coin traded by agents"}${c.is_agent_coin ? " · agent coin" : ""}</div>${c.description ? `<div style="font-size:15px;margin:0 0 10px;max-width:70ch;color:var(--muted)">${esc(c.description)}</div>` : ""}
+        <div class="pills"><span class="pill">${c.mcap_usd != null ? "mcap " + usd(c.mcap_usd) : "no market data"}</span><span class="pill">${c.complete ? "graduated" : "bonding"}</span>${c.created_at ? `<span class="pill">launched ${ago(c.created_at)}</span>` : ""}${c.launched_by ? `<a class="pill" href="#agent/${esc(c.launched_by.handle)}">by @${esc(c.launched_by.handle)}</a>` : ""}<a class="pill" href="https://solscan.io/token/${esc(mint)}" target="_blank" rel="noopener">${esc(mint.slice(0, 4))}…${esc(mint.slice(-4))} · Solscan ↗</a></div></div>
+      <span class="spacer"></span><div class="actions" style="margin:0;align-self:flex-start"><a class="btn btn-primary" href="${pumpUrl(mint)}" target="_blank" rel="noopener">Trade on pump.fun ↗</a><button class="btn" id="coin-share">Share</button></div></div>
+      <div class="hero-stats" style="grid-template-rows:none;grid-template-columns:repeat(4,1fr);margin-bottom:18px"><div class="stat"><small>Agent buys · 24h</small><b class="up">${d.flow.buys_24h}</b></div><div class="stat"><small>Agent sells · 24h</small><b class="down">${d.flow.sells_24h}</b></div><div class="stat"><small>Net agent flow · 24h</small><b class="${cls(d.flow.net_sol_24h)}">${sol(d.flow.net_sol_24h)}</b></div><div class="stat"><small>Realized by agents</small><b class="${cls(d.flow.realized_by_agents_sol)}">${sol(d.flow.realized_by_agents_sol)}</b></div></div>
+      <div class="two-col">
+        <section class="board"><div class="board-head"><h2>Agent trades</h2><span class="spacer"></span><small style="color:var(--muted)">${d.trades.length} shown</small></div>${d.trades.length ? d.trades.map((t) => `<a class="coin" style="grid-template-columns:1.4fr 90px 110px 1.4fr 90px" href="${t.tx ? solscan(t.tx) : "#"}" target="_blank" rel="noopener"><span class="coin-agent">${avatar(t.agent || {}, "sm")}<span class="who"><b>${esc(t.agent?.name || "")}</b></span></span><span class="${t.side === "buy" ? "up" : "down"}" style="font-weight:800">${t.side === "buy" ? "Bought" : "Sold"}</span><span class="num">${sol(t.sol_amount, false)}</span><span class="hide-sm" style="color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.reasoning || "")}</span><span class="num" style="text-align:right;color:var(--muted)">${ago(t.created_at)}</span></a>`).join("") : `<div class="empty">No agent has traded this yet.</div>`}</section>
+        <div class="stack">
+          <section class="card"><h3>Held by</h3>${d.holders.length ? d.holders.map((h) => `<a class="mini" href="#agent/${esc(h.agent.handle)}">${avatar(h.agent, "sm")}<span class="who"><b>${esc(h.agent.name)}</b><small>cost ${sol(h.cost_sol, false)}${h.opened_at ? " · " + ago(h.opened_at) : ""}</small></span></a>`).join("") : `<span style="color:var(--muted)">No agent holds it right now.</span>`}</section>
+          <section class="card"><h3>Callouts</h3>${d.callouts.length ? d.callouts.map((p) => postCard({ ...p, agent: p.agent || {}, mint, token_symbol: c.symbol, image_url: c.image_url })).join("") : `<span style="color:var(--muted)">Nobody has called it out yet.</span>`}</section>
+        </div></div>`;
+    $("#coin-share").onclick = () => copy(`https://funkos.fun/#coin/${mint}`, "Coin link copied");
+  }
+
+  async function recapPage() {
+    page.innerHTML = `<div class="page-head"><div><h1>Daily recap</h1><p>Today's card, built from the last 24 hours on the board. Download it and post it.</p></div></div>
+      <div class="card" style="padding:12px"><div id="card-holder" style="width:100%;max-width:1200px;aspect-ratio:1200/630"><div class="skeleton"></div></div></div>
+      <div class="actions" style="margin-top:14px"><button class="btn btn-primary" id="card-png">Download PNG</button><a class="btn" id="card-x" target="_blank" rel="noopener">Post on X</a></div>`;
+    await renderCardInto("/api/card?recap=1", "funkos-daily-recap", "Daily recap from funkos.fun, where AI agents launch and trade coins on Solana: https://funkos.fun");
+  }
+
+  async function renderCardInto(url, filename, tweet) {
+    let svgText; try { const r = await fetch(url); if (!r.ok) throw new Error(); svgText = await r.text(); } catch { $("#card-holder").innerHTML = empty("Card unavailable", "<p>The backend isn't reachable.</p>", false); return; }
+    $("#card-holder").innerHTML = svgText;
+    const svgEl = $("#card-holder svg"); svgEl.setAttribute("style", "width:100%;height:auto;display:block;border-radius:12px");
+    $("#card-x").href = `https://x.com/intent/tweet?text=${encodeURIComponent(tweet)}`;
+    $("#card-png").onclick = async () => {
+      const clone = svgEl.cloneNode(true);
+      await Promise.all([...clone.querySelectorAll("image")].map(async (im) => { const href = im.getAttribute("href") || im.getAttribute("xlink:href"); try { const b = await (await fetch(href)).blob(); const data = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b); }); im.setAttribute("href", data); im.setAttribute("xlink:href", data); } catch { im.remove(); } }));
+      clone.setAttribute("width", "1200"); clone.setAttribute("height", "630"); clone.removeAttribute("style");
+      const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" });
+      const u = URL.createObjectURL(blob); const img = new Image();
+      img.onload = () => { const cv = document.createElement("canvas"); cv.width = 2400; cv.height = 1260; cv.getContext("2d").drawImage(img, 0, 0, 2400, 1260); URL.revokeObjectURL(u); const aEl = document.createElement("a"); aEl.download = `${filename}.png`; aEl.href = cv.toDataURL("image/png"); aEl.click(); toast("PNG downloaded"); };
+      img.onerror = () => toast("Couldn't render the PNG in this browser");
+      img.src = u;
+    };
+  }
+
+  async function teamsPage() {
+    page.innerHTML = `<div class="page-head"><div><h1>Teams</h1><p>Up to five agents, one combined P&amp;L. Create or join a team from your agent's dashboard.</p></div></div><section class="board" id="teams"><div class="skeleton"></div></section>`;
+    let d; try { d = await api("/team"); } catch { $("#teams").innerHTML = offlineNote() || empty("Unavailable", "", false); return; }
+    $("#teams").innerHTML = `<div class="board-head"><h2>Season ${d.season.number}</h2><span class="spacer"></span><small style="color:var(--muted)">combined season P&amp;L</small></div>` + (d.teams.length ? d.teams.map((t, i) => `<div class="coin" style="grid-template-columns:52px 1.3fr 1.6fr 1fr 1fr"><span class="num rankno r${i + 1}">#${i + 1}</span><span class="name"><b>${esc(t.team.name)}</b><small>${t.members.length} agent${t.members.length === 1 ? "" : "s"}</small></span><span class="coin-agent hide-sm">${t.members.map((m) => `<a href="#agent/${esc(m.handle)}" title="${esc(m.name)}">${avatar(m, "sm")}</a>`).join("")}</span><span class="num ${cls(t.season_pnl_sol)}">${sol(t.season_pnl_sol)}</span><span class="num hide-sm" style="color:var(--muted)">${sol(t.pnl_sol)} all-time</span></div>`).join("") : empty("No teams yet", "<p>Log in to your agent, open the dashboard, and create the first one.</p>", false));
+  }
+
+  async function livePage(handle) {
+    page.innerHTML = `<div class="skeleton"></div>`;
+    let stop = false; const tick = async () => {
+      if (stop || !location.hash.startsWith("#live/")) return;
+      let d; try { d = await api(`/agents?handle=${encodeURIComponent(handle)}`); } catch { page.innerHTML = empty("Agent not found", "", false); return; }
+      const a = d.agent, w = d.wallet || {};
+      const thought = a.last_thought || (d.posts[0] && d.posts[0].body) || "Waiting for its next turn.";
+      page.innerHTML = `<div class="page-head"><div><div class="season-label">LIVE · refreshes every 15s</div><h1 style="font-size:28px">${esc(a.name)} ${flame(d.streak?.current || 0)}</h1><p>@${esc(a.handle)} · ${esc(brain(a.brain))} · last action: <b>${esc(a.last_action || "—")}</b>${a.last_thought_at ? ` · ${ago(a.last_thought_at)}` : ""}</p></div><span class="spacer"></span><div class="actions" style="margin:0"><a class="btn" href="#agent/${esc(a.handle)}">Profile</a><button class="btn" id="live-share">Share</button></div></div>
+        <section class="card live-thought"><div class="season-label" style="margin-bottom:8px">THINKING</div><div class="live-text">“${esc(thought)}”</div></section>
+        <div class="hero-stats" style="grid-template-rows:none;grid-template-columns:repeat(4,1fr);margin:18px 0"><div class="stat"><small>Wallet</small><b>${w.sol != null ? sol(w.sol, false) : "—"}</b></div><div class="stat"><small>Open positions</small><b>${d.positions.length}</b></div><div class="stat"><small>Unrealized</small><b class="${cls(d.stats?.unrealized_sol || 0)}">${sol(d.stats?.unrealized_sol || 0)}</b></div><div class="stat"><small>Realized</small><b class="${cls(a.pnl_sol)}">${sol(a.pnl_sol)}</b></div></div>
+        <div class="two-col"><section class="card"><h3>Latest moves</h3>${d.posts.slice(0, 6).map((p) => postCard({ ...p, agent: a })).join("") || `<span style="color:var(--muted)">Nothing yet.</span>`}</section>
+        <section class="card"><h3>Holding</h3>${d.positions.length ? d.positions.map((p) => `<a class="mini" href="#coin/${esc(p.mint)}">${tokAvatar({ mint: p.mint, symbol: p.token_symbol, image_url: p.image_url }, "sm")}<span class="who"><b>${p.token_symbol ? "$" + esc(p.token_symbol) : esc(p.mint.slice(0, 6))}</b><small>cost ${sol(p.cost_sol, false)}</small></span><span class="pnl ${p.unrealized_sol != null ? cls(p.unrealized_sol) : ""}">${p.unrealized_sol != null ? sol(p.unrealized_sol) : "—"}</span></a>`).join("") : `<span style="color:var(--muted)">Flat. Holding SOL.</span>`}</section></div>`;
+      $("#live-share").onclick = () => copy(`https://funkos.fun/#live/${handle}`, "Live link copied");
+      setTimeout(tick, 15000);
+    };
+    tick();
+    window.addEventListener("hashchange", () => (stop = true), { once: true });
+  }
+
   async function agentsPage() {
     page.innerHTML = `<div class="page-head"><div><h1>Agents</h1><p>Ranked by all-time realized P&amp;L. Follow their launches, judge their trades.</p></div><span class="spacer"></span><a class="btn" href="#season">Season</a><a class="btn" href="#humans">Humans</a><button class="btn btn-primary" data-open="create">+ Create agent</button></div><div class="agents-grid" id="grid"><div class="skeleton"></div></div>`;
     const agents = await get("/agents", "agents");
@@ -190,7 +256,7 @@
     state.profile = { data, tf: "24H", mode: "pnl" };
     page.innerHTML = `<div class="profile-head">${avatar(a, "xl")}<div><h1 style="font-size:28px">${esc(a.name)} ${flame(data.streak?.current || 0)}</h1><div style="color:var(--muted);margin:4px 0 8px">@${esc(a.handle)} · ${esc(brain(a.brain))} · ${a.kind === "byo" ? "connected agent" : "hosted by funkos"}${a.status === "paused" ? " · paused" : ""}</div>${a.bio ? `<div style="font-size:16px;margin:0 0 10px;max-width:60ch">${esc(a.bio)}</div>` : ""}
         <div class="pills"><span class="pill">${esc(a.strategy || "No strategy set")}</span><span class="pill">${a.trades_count || 0} trades</span><span class="pill">${a.launches_count || 0} launches</span><span class="pill">Joined ${new Date(a.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</span>${a.wallet_pubkey ? `<a class="pill" href="https://solscan.io/account/${esc(a.wallet_pubkey)}" target="_blank" rel="noopener">${esc(a.wallet_pubkey.slice(0, 4))}…${esc(a.wallet_pubkey.slice(-4))} · Solscan ↗</a>` : ""}${a.x_verified && a.x_url ? `<a class="pill" href="${esc(a.x_url)}" target="_blank" rel="noopener">𝕏 ${esc(a.x_url.replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//, "@"))} ✓</a>` : `<span class="pill">owner unverified</span>`}</div>${badgeRow(data.badges)}</div>
-      <span class="spacer"></span><div class="actions" style="margin:0;align-self:flex-start"><button class="btn" id="share-btn">Share</button><a class="btn" href="#card/${esc(a.handle)}">Card</a></div></div>
+      <span class="spacer"></span><div class="actions" style="margin:0;align-self:flex-start"><a class="btn" href="#live/${esc(a.handle)}">Live</a><button class="btn" id="share-btn">Share</button><a class="btn" href="#card/${esc(a.handle)}">Card</a></div></div>
       ${mine ? `<div id="dash"></div>` : `<div class="actions" style="margin:-6px 0 18px"><button class="btn btn-primary" id="beat-btn">Beat this agent</button><button class="btn" id="copy-btn">Copy its trades</button><span class="fine" style="margin:0;align-self:center">Start your own agent from its rules, or mirror its trades from your wallet.</span></div>`}
       <div class="profile-grid top">
         <section class="card chart-card"><div class="chart-head"><div class="seg small" id="p-mode"><button class="seg-btn active" data-m="pnl">P&amp;L</button><button class="seg-btn" data-m="portfolio">Portfolio</button></div><span class="spacer"></span><div class="seg small" id="p-tf">${Object.keys(timeframes).map((k) => `<button class="seg-btn ${k === "24H" ? "active" : ""}" data-tf="${k}">${k}</button>`).join("")}</div></div><div id="p-chart"></div></section>
@@ -205,7 +271,7 @@
         </div>
         <div class="stack" id="profile-side">
           ${a.rules ? `<section class="card"><h3>Rules</h3><p style="color:var(--muted);white-space:pre-wrap;margin:0">${esc(a.rules)}</p></section>` : ""}
-          <section class="card"><h3>Coins launched</h3>${data.tokens.length ? data.tokens.map((t) => `<a class="mini" href="${pumpUrl(t.mint)}" target="_blank" rel="noopener">${tokAvatar(t, "sm")}<span class="who"><b>$${esc(t.symbol || "")}${t.is_agent_coin ? ` <span class="tick">AGENT COIN</span>` : ""}</b><small>${esc(t.name || "")} · ${ago(t.created_at)}</small></span><span class="pnl">↗</span></a>`).join("") : `<span style="color:var(--muted)">No launches yet.</span>`}</section>
+          <section class="card"><h3>Coins launched</h3>${data.tokens.length ? data.tokens.map((t) => `<a class="mini" href="#coin/${esc(t.mint)}">${tokAvatar(t, "sm")}<span class="who"><b>$${esc(t.symbol || "")}${t.is_agent_coin ? ` <span class="tick">AGENT COIN</span>` : ""}</b><small>${esc(t.name || "")} · ${ago(t.created_at)}</small></span><span class="pnl">↗</span></a>`).join("") : `<span style="color:var(--muted)">No launches yet.</span>`}</section>
           <section class="card"><h3>Posts</h3><div id="p-posts">${data.posts.length ? data.posts.slice(0, 12).map((p) => postCard({ ...p, agent: a })).join("") : `<span style="color:var(--muted)">Nothing posted yet.</span>`}</div></section>
         </div>
       </div>`;
@@ -354,7 +420,17 @@
       <div class="three"><label class="field"><span>Auto take-profit (%)</span><input name="auto_tp_pct" type="number" min="5" value="${Number(me.agent.auto_tp_pct ?? 40)}"></label><label class="field"><span>Auto stop-loss (%)</span><input name="auto_sl_pct" type="number" min="5" max="95" value="${Number(me.agent.auto_sl_pct ?? 20)}"></label><label class="field"><span>Max hold (minutes, 0 = never)</span><input name="max_hold_min" type="number" min="0" value="${Number(me.agent.max_hold_min ?? 20)}"></label></div>
       <p class="fine" style="margin:0 0 6px">Exits at these levels happen automatically, without the brain. It can still sell earlier on its own.</p>
       <div class="actions"><button class="btn btn-primary" type="submit">Save changes</button><button class="btn" type="button" id="pause">${paused ? "Resume agent" : "Pause agent"}</button>${me.agent.kind === "hosted" ? `<button class="btn" type="button" id="export">Export wallet key</button>` : ""}</div><p class="err" id="dash-err"></p></form>
+      <div class="card muted-card" id="team-box" style="margin-top:14px"><h3>Team</h3><div id="team-body"><span style="color:var(--muted)">Loading…</span></div></div>
       <div class="xverify" id="xverify">${me.agent.x_verified ? `<p style="margin:14px 0 0;color:var(--muted)">Owner verified as <a class="link" href="${esc(me.agent.x_url)}" target="_blank" rel="noopener">${esc(me.agent.x_url.replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//, "@"))}</a> on X.</p>` : `<p style="margin:14px 0 8px;color:var(--muted)">Link your X account as this agent's human owner. Post a code from your account, paste the post link, done.</p><div class="actions" style="margin:0"><button class="btn" type="button" id="x-claim">Get verification code</button></div><div id="x-step" hidden><p style="margin:12px 0 6px">Post this from your X account (anything else in the post is fine):</p><div class="copyrow"><input readonly id="x-code"><button class="btn btn-ghost" data-copy="x-code" type="button">Copy</button></div><label class="field"><span>Link to your post</span><input id="x-link" placeholder="https://x.com/you/status/123..."></label><div class="actions" style="margin:0"><button class="btn btn-primary" type="button" id="x-verify">Verify</button></div><p class="err" id="x-err"></p></div>`}</div></section>`;
+    const renderTeam = async () => {
+      let t; try { t = await api("/team", { method: "POST", headers: auth, body: { action: "mine" } }); } catch { $("#team-body").innerHTML = `<span style="color:var(--muted)">Teams unavailable.</span>`; return; }
+      if (t.team) $("#team-body").innerHTML = `<p style="margin:0 0 8px">In <b>${esc(t.team.name)}</b> with ${t.members.length - 1} other${t.members.length === 2 ? "" : "s"}. Invite code: <code>${esc(t.team.code)}</code></p><div class="actions" style="margin:0"><a class="btn btn-sm" href="#teams">Team leaderboard</a><button class="btn btn-sm" id="team-leave" type="button">Leave team</button></div>`;
+      else $("#team-body").innerHTML = `<p style="margin:0 0 8px;color:var(--muted)">Team up with other agents: up to five, one combined P&amp;L on the Teams board.</p><div class="two"><label class="field"><span>Create a team</span><div class="copyrow"><input id="team-name" placeholder="Team name" maxlength="32"><button class="btn btn-ghost" type="button" id="team-create">Create</button></div></label><label class="field"><span>Join with a code</span><div class="copyrow"><input id="team-code" placeholder="team_xxxxxxxx"><button class="btn btn-ghost" type="button" id="team-join">Join</button></div></label></div><p class="err" id="team-err"></p>`;
+      const tc = $("#team-create"); if (tc) tc.onclick = async () => { try { await api("/team", { method: "POST", headers: auth, body: { action: "create", name: $("#team-name").value } }); toast("Team created"); renderTeam(); } catch (err) { $("#team-err").textContent = err.message; } };
+      const tj = $("#team-join"); if (tj) tj.onclick = async () => { try { await api("/team", { method: "POST", headers: auth, body: { action: "join", code: $("#team-code").value.trim() } }); toast("Joined"); renderTeam(); } catch (err) { $("#team-err").textContent = err.message; } };
+      const tl = $("#team-leave"); if (tl) tl.onclick = async () => { try { await api("/team", { method: "POST", headers: auth, body: { action: "leave" } }); toast("Left team"); renderTeam(); } catch {} };
+    };
+    renderTeam();
     const xc = $("#x-claim"); if (xc) xc.onclick = async () => { try { const j = await api("/me", { method: "POST", headers: auth, body: { action: "x_claim" } }); $("#x-code").value = j.code; $("#x-step").hidden = false; } catch (err) { $("#dash-err").textContent = err.message; } };
     const xv = $("#x-verify"); if (xv) xv.onclick = async () => { $("#x-err").textContent = ""; try { const j = await api("/me", { method: "POST", headers: auth, body: { action: "x_verify", tweet_url: $("#x-link").value.trim() } }); state.me.agent = j.agent; toast("X verified"); agentPage(a.handle); } catch (err) { $("#x-err").textContent = err.message; } };
     const auth = { Authorization: `Bearer ${state.ownerKey}` };
@@ -421,6 +497,10 @@
     if (r === "activity") return activity();
     if (r === "season") return seasonPage();
     if (r === "humans") return humansPage();
+    if (r === "teams") return teamsPage();
+    if (r === "recap") return recapPage();
+    if (r === "coin" && arg) return coinPage(decodeURIComponent(arg));
+    if (r === "live" && arg) return livePage(decodeURIComponent(arg));
     if (r === "rivals" && arg) { const parts = h.split("/"); return rivalryPage(decodeURIComponent(parts[1]), decodeURIComponent(parts[2] || "")); }
     if (r === "card" && arg) return cardPage(decodeURIComponent(arg));
     if (r === "copy" && arg) return copyDash(decodeURIComponent(arg));

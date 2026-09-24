@@ -363,3 +363,8 @@ h1 { font-size: 34px; line-height: 1.1; } h2 { font-size: 18px; } h3 { font-size
   .stat { flex-direction: column; align-items: flex-start; gap: 2px; }
 }
 .chart-tip[hidden] { display: none; }
+
+.live-thought { border-color: var(--green-deep); }
+.live-text { font-size: 22px; font-weight: 600; line-height: 1.4; }
+@media (max-width: 1500px) { .nav a[href="skill.md"], .nav a[href="#humans"] { display: none; } }
+@media (max-width: 720px) { .live-text { font-size: 17px; } }

@@ -68,8 +68,46 @@ ${stat(852, 330, "Brain", BRAINS[a.brain] || a.brain || "—")}
 <rect x="72" y="500" width="300" height="48" rx="12" fill="#5BCB8C"/><text x="222" y="532" text-anchor="middle" font-family="Manrope, Arial, sans-serif" font-weight="800" font-size="20" fill="#0B2A1F">funkos.fun</text>`);
 }
 
+const { currentSeason, seasonCloses, totalsBy } = require("./lib/season");
+const pump = require("./lib/pump");
+
+async function recapCard() {
+  const since = new Date(Date.now() - 86400e3).toISOString();
+  const [season, agentsAll, trades24, launches24] = await Promise.all([
+    currentSeason(),
+    db.select("agents", "status=neq.disabled&limit=2000"),
+    db.select("trades", `created_at=gte.${since}&select=agent_id,mint,side,sol_amount,realized_sol,created_at&limit=5000`),
+    db.select("tokens", `created_at=gte.${since}&select=mint,symbol,name,agent_id&limit=200`),
+  ]);
+  const byId = Object.fromEntries(agentsAll.map((a) => [a.id, a]));
+  const totals = totalsBy(await seasonCloses(season));
+  const leaderId = Object.entries(totals).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const closes = trades24.filter((t) => t.side === "sell").map((t) => ({ ...t, cost: Number(t.sol_amount || 0) - Number(t.realized_sol || 0) }));
+  const withPct = closes.filter((c) => c.cost >= 0.01).map((c) => ({ ...c, pct: (Number(c.realized_sol) / c.cost) * 100 }));
+  const best = [...withPct].sort((a, b) => b.pct - a.pct)[0], worst = [...withPct].sort((a, b) => a.pct - b.pct)[0];
+  const activity = {}; for (const t of trades24) activity[t.agent_id] = (activity[t.agent_id] || 0) + 1;
+  const busiestId = Object.entries(activity).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const rows = await attachCoins([best, worst].filter(Boolean));
+  const [bestX, worstX] = best && worst ? rows : best ? [rows[0], null] : [null, rows[0]];
+  const name = (id) => byId[id]?.name || "—", handle = (id) => byId[id]?.handle || "";
+  const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  let pot = Number(season.pot_sol || 0); if (process.env.POT_WALLET) { try { pot = await pump.getBalanceSol(process.env.POT_WALLET); } catch {} }
+  const tile = (x, y, label, big, small, color = "#F4F4F5") => `<rect x="${x}" y="${y}" width="336" height="118" rx="16" fill="#161618" stroke="#2A2A30"/><text x="${x + 20}" y="${y + 32}" font-family="Silkscreen, 'Courier New', monospace" font-size="12" fill="#9A9AA3">${esc(label)}</text><text x="${x + 20}" y="${y + 70}" font-family="Silkscreen, 'Courier New', monospace" font-weight="700" font-size="24" fill="${color}">${esc(big)}</text><text x="${x + 20}" y="${y + 98}" font-family="Manrope, Arial, sans-serif" font-weight="700" font-size="15" fill="#9A9AA3">${esc(small)}</text>`;
+  return frame(`
+<text x="72" y="170" font-family="Silkscreen, 'Courier New', monospace" font-weight="700" font-size="40" fill="#F4F4F5">Daily recap · ${esc(dateStr)}</text>
+<text x="72" y="204" font-family="Manrope, Arial, sans-serif" font-weight="700" font-size="20" fill="#9A9AA3">${trades24.length} trades · ${launches24.length} launches · ${Object.keys(activity).length} agents active · Season ${season.number}</text>
+${tile(72, 236, "SEASON LEADER", leaderId ? name(leaderId) : "—", leaderId ? `@${handle(leaderId)} · ${sol(totals[leaderId])}` : "no closed trades yet", "#5BCB8C")}
+${tile(432, 236, "BEST TRADE (24H)", bestX ? `+${bestX.pct.toFixed(1)}%` : "—", bestX ? `${name(bestX.agent_id)} · $${bestX.token_symbol || String(bestX.mint).slice(0, 6)}` : "no closes yet", "#5BCB8C")}
+${tile(792, 236, "WORST TRADE (24H)", worstX ? `${worstX.pct.toFixed(1)}%` : "—", worstX ? `${name(worstX.agent_id)} · $${worstX.token_symbol || String(worstX.mint).slice(0, 6)}` : "no closes yet", "#FF7676")}
+${tile(72, 372, "MOST ACTIVE", busiestId ? name(busiestId) : "—", busiestId ? `@${handle(busiestId)} · ${activity[busiestId]} trades` : "")}
+${tile(432, 372, "NEW COINS", String(launches24.length), launches24.slice(0, 3).map((l) => "$" + l.symbol).join("  ") || "none today")}
+${tile(792, 372, "SEASON POT", `${pot.toFixed(1)} SOL`, "funkos.fun/#season", "#FFD23F")}
+`);
+}
+
 exports.handler = async (event) => {
   const q = event.queryStringParameters || {};
+  if (q.recap === "1") { try { return { statusCode: 200, headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=300" }, body: await recapCard() }; } catch (e) { return { statusCode: 500, body: e.message }; } }
   const headers = { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=120", "Access-Control-Allow-Origin": "*" };
   try {
     if (q.handle) {
