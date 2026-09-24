@@ -37,6 +37,23 @@ async function rpc(method, params, ms = 5000) {
   return j.result;
 }
 const getBalanceSol = async (pubkey) => (await rpc("getBalance", [pubkey])).value / 1e9;
+// SOL a wallet gained (or lost) in a confirmed transaction, read from the chain. Retries while the tx confirms.
+async function solDeltaFromTx(signature, wallet, tries = 10) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const tx = await rpc("getTransaction", [signature, { maxSupportedTransactionVersion: 0, encoding: "json", commitment: "confirmed" }]);
+      if (tx && tx.meta) {
+        const keys = tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
+        const idx = keys.indexOf(wallet);
+        if (idx === -1) return null;
+        return (tx.meta.postBalances[idx] - tx.meta.preBalances[idx]) / 1e9;
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return null;
+}
+
 // How many of a token a wallet holds (ui amount). 0 if none.
 async function getTokenBalance(owner, mint) {
   try {
@@ -202,4 +219,4 @@ async function jupiterInfo(mint) {
   } catch { return null; }
 }
 
-module.exports = { getTokenBalance, collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+module.exports = { solDeltaFromTx, getTokenBalance, collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };

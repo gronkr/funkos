@@ -4,6 +4,7 @@
 // Env (same as Netlify): SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENROUTER_API_KEY, SOLANA_RPC_URL, IMAGE_MODEL (optional)
 // Worker-only: RUNNER=worker (required), THINK_EVERY_SEC (default 120), CONCURRENCY (default 5), LOOP_MS (default 10000)
 
+// funkos worker v4 (sell proceeds read from chain; repairs zero-SOL sells on start)
 process.env.RUNNER = "worker";
 const db = require("../netlify/functions/lib/db");
 const pump = require("../netlify/functions/lib/pump");
@@ -35,7 +36,30 @@ async function tick() {
   if (results.some((r) => r.status === "fulfilled" && r.value?.mint)) marketAt = 0; // a launch happened: refresh the board next tick
 }
 
+// One-off repair: sells booked with 0 SOL received (read too early). Recompute from the chain and correct P&L.
+async function repairZeroSells() {
+  const since = new Date(Date.now() - 7 * 86400e3).toISOString();
+  const rows = await db.select("trades", `side=eq.sell&sol_amount=eq.0&tx=not.is.null&created_at=gte.${since}&select=id,agent_id,tx,realized_sol&limit=500`).catch(() => []);
+  if (!rows.length) return;
+  const agents = Object.fromEntries((await db.select("agents", `id=in.(${[...new Set(rows.map((r) => r.agent_id))].join(",")})&select=id,wallet_pubkey,pnl_sol,wins,losses`)).map((a) => [a.id, a]));
+  let fixed = 0;
+  for (const t of rows) {
+    const a = agents[t.agent_id]; if (!a?.wallet_pubkey) continue;
+    const got = await pump.solDeltaFromTx(t.tx, a.wallet_pubkey, 3);
+    if (!(got > 0)) continue;
+    const realized = Number(t.realized_sol || 0) + got;
+    await db.update("trades", `id=eq.${t.id}`, { sol_amount: got, realized_sol: realized });
+    a.pnl_sol = Number(a.pnl_sol || 0) + got;
+    if (Number(t.realized_sol || 0) <= 0 && realized > 0) { a.wins = Number(a.wins || 0) + 1; a.losses = Math.max(0, Number(a.losses || 0) - 1); }
+    await db.update("agents", `id=eq.${a.id}`, { pnl_sol: a.pnl_sol, wins: a.wins, losses: a.losses });
+    await db.update("posts", `tx=eq.${t.tx}&kind=eq.trade`, { sol_amount: got }).catch(() => {});
+    fixed++;
+  }
+  console.log(`repaired ${fixed} of ${rows.length} zero-SOL sells`);
+}
+
 async function main() {
+  try { await repairZeroSells(); } catch (e) { console.error("repair failed:", e.message); }
   console.log(`funkos worker up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
   for (;;) {
     try { await tick(); } catch (e) { console.error("tick failed:", e.message); }

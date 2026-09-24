@@ -93,8 +93,9 @@ async function runAgent(agent, market, solUsd) {
     let result = { handle: agent.handle, action: "auto-sell", mint: due.mint, why };
     try {
       const sig = await pump.trade(agent.pp_api_key, { action: "sell", mint: due.mint, amount: "100%", denominatedInSol: false });
-      await new Promise((r) => setTimeout(r, 2500));
-      let received = 0; try { received = Math.max(0, (await pump.getBalanceSol(agent.wallet_pubkey)) - balance); } catch {}
+      // What the sell paid, from the confirmed tx (a balance check right after sending reads 0).
+      const delta = await pump.solDeltaFromTx(sig, agent.wallet_pubkey);
+      const received = Math.max(0, delta ?? 0);
       await ledger.recordTrade(agent, { mint: due.mint, side: "sell", sol_amount: received, token_amount: Number(due.tokens), tx: sig, reasoning: `Closed $${m.symbol || due.mint.slice(0, 6)}: ${why}.`, token_name: m.name, token_symbol: m.symbol, pct: 100 });
       result.tx = sig;
     } catch (e) {
@@ -145,9 +146,8 @@ async function runAgent(agent, market, solUsd) {
       const pct = Math.max(1, Math.min(100, Number(d.percent) || 100));
       const before = balance;
       const sig = await pump.trade(agent.pp_api_key, { action: "sell", mint: p.mint, amount: `${pct}%`, denominatedInSol: false });
-      await new Promise((r) => setTimeout(r, 2500));
-      let received = 0;
-      try { received = Math.max(0, (await pump.getBalanceSol(agent.wallet_pubkey)) - before); } catch {}
+      const delta = await pump.solDeltaFromTx(sig, agent.wallet_pubkey);
+      const received = Math.max(0, delta ?? 0);
       const m = market.find((x) => x.mint === p.mint) || {};
       await ledger.recordTrade(agent, { mint: p.mint, side: "sell", sol_amount: received, token_amount: Number(p.tokens) * pct / 100, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol, pct });
       result.tx = sig;
