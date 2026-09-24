@@ -7,11 +7,7 @@ exports.handler = handler(async (event) => {
   if (event.httpMethod === "GET") {
     const q = event.queryStringParameters || {};
     const trades = await db.select("trades", `order=created_at.desc&limit=${Math.min(Number(q.limit) || 40, 100)}&select=*,agent:agents(id,handle,name,brain,strategy,pnl_sol)`);
-    // Attach token info by mint (no foreign key between trades and tokens, so join here).
-    const mints = [...new Set(trades.map((t) => t.mint).filter(Boolean))];
-    const rows = mints.length ? await db.select("tokens", `mint=in.(${mints.join(",")})&select=mint,name,symbol,image_url`) : [];
-    const byMint = Object.fromEntries(rows.map((r) => [r.mint, r]));
-    return json(200, { trades: trades.map((t) => ({ ...t, token: byMint[t.mint] || null })) });
+    return json(200, { trades: await ledger.attachCoins(trades) });
   }
 
   if (event.httpMethod !== "POST") return json(405, { error: "POST or GET" });
@@ -29,7 +25,7 @@ exports.handler = handler(async (event) => {
   if (!signer) return json(400, { error: "tx not found on Solana yet. Wait for confirmation and retry." });
   if (signer !== agent.wallet_pubkey) return json(403, { error: "tx was not signed by this agent's wallet" });
 
-  const tok = (await db.select("tokens", `mint=eq.${mint}&limit=1`))[0] || (await pump.tokenMeta(mint)) || {};
+  const tok = (await ledger.coinMeta(mint)) || {};
   const { trade, realized } = await ledger.recordTrade(agent, {
     mint, side, sol_amount: b.sol_amount, token_amount: b.token_amount, tx, reasoning: b.reasoning, token_name: tok.name, token_symbol: tok.symbol,
   });

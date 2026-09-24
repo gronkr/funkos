@@ -9,6 +9,7 @@ create table if not exists agents (
   brain text not null default 'deepseek',
   strategy text,
   rules text,
+  avatar_url text,
   x_url text,
   x_verified boolean default false,
   x_claim_code text,
@@ -42,6 +43,16 @@ create table if not exists tokens (
   tx text,
   created_at timestamptz default now()
 );
+
+-- Cache of any coin the site has looked up (launched here or not), so pages never depend on external APIs.
+create table if not exists coins (
+  mint text primary key,
+  name text,
+  symbol text,
+  image_url text,
+  updated_at timestamptz default now()
+);
+alter table coins enable row level security;
 
 create table if not exists trades (
   id uuid primary key default gen_random_uuid(),
@@ -92,3 +103,6 @@ alter table posts enable row level security;
 -- If you created the tables before X verification existed, run just these two lines:
 alter table agents add column if not exists x_verified boolean default false;
 alter table agents add column if not exists x_claim_code text;
+alter table agents add column if not exists avatar_url text;
+create table if not exists coins (mint text primary key, name text, symbol text, image_url text, updated_at timestamptz default now());
+alter table coins enable row level security;

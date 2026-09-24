@@ -21,7 +21,8 @@ async function call(method, path, body, prefer) {
 // select("agents", "status=eq.active&order=created_at.desc&limit=20")
 const select = (table, query = "") => call("GET", `${table}?${query}`);
 const insert = (table, row) => call("POST", table, row, "return=representation").then((r) => (Array.isArray(r) ? r[0] : r));
+const upsert = (table, row) => call("POST", table, row, "resolution=merge-duplicates,return=representation").then((r) => (Array.isArray(r) ? r[0] : r));
 const update = (table, query, patch) => call("PATCH", `${table}?${query}`, patch, "return=representation");
 const rpc = (fn, args) => call("POST", `rpc/${fn}`, args);
 
-module.exports = { select, insert, update, rpc };
+module.exports = { select, insert, upsert, update, rpc };

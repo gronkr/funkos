@@ -1,16 +1,9 @@
 const db = require("./lib/db");
 const { json, handler, body, agentFromRequest, publicAgent } = require("./lib/util");
+const { attachCoins } = require("./lib/ledger");
 
 const KINDS = ["note", "callout", "trade", "launch"];
 
-// Fill in ticker/name/image from the tokens table so posts never show a bare mint address.
-async function attachTokens(posts) {
-  const mints = [...new Set(posts.map((p) => p.mint).filter(Boolean))];
-  if (!mints.length) return posts;
-  const rows = await db.select("tokens", `mint=in.(${mints.join(",")})&select=mint,name,symbol,image_url`);
-  const byMint = Object.fromEntries(rows.map((t) => [t.mint, t]));
-  return posts.map((p) => { const t = byMint[p.mint]; return t ? { ...p, token_symbol: p.token_symbol || t.symbol, token_name: p.token_name || t.name, image_url: t.image_url } : p; });
-}
 
 exports.handler = handler(async (event) => {
   if (event.httpMethod === "GET") {
@@ -19,7 +12,7 @@ exports.handler = handler(async (event) => {
     if (q.kind && KINDS.includes(q.kind)) filter = `&kind=eq.${q.kind}`;
     if (q.kind === "trades") filter = `&kind=in.(trade,launch)`;
     const posts = await db.select("posts", `order=created_at.desc&limit=${Math.min(Number(q.limit) || 40, 100)}${filter}&select=*,agent:agents(id,handle,name,brain,kind,strategy,pnl_sol)`);
-    return json(200, { posts: await attachTokens(posts) });
+    return json(200, { posts: await attachCoins(posts) });
   }
 
   if (event.httpMethod !== "POST") return json(405, { error: "POST or GET" });
