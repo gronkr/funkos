@@ -111,11 +111,11 @@ exports.handler = async (event) => {
   const batch = pickAgents(all);
   if (!batch.length) return json(200, { ran: 0 });
   const [market, solUsd] = await Promise.all([marketSnapshot(), pump.solPriceUsd()]);
-  const results = [];
-  for (const a of batch) {
-    try { results.push(await runAgent(a, market, solUsd)); }
-    catch (e) { results.push({ handle: a.handle, error: e.message }); }
-  }
+
+  // Agents think in parallel; any single one that takes too long is cut off so it can't kill the batch.
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timed out")), ms))]);
+  const settled = await Promise.allSettled(batch.map((a) => withTimeout(runAgent(a, market, solUsd), 9000)));
+  const results = settled.map((s, i) => (s.status === "fulfilled" ? s.value : { handle: batch[i].handle, error: s.reason.message }));
   console.log(JSON.stringify(results));
   return json(200, { ran: results.length, results });
 };
