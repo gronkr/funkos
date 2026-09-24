@@ -1,0 +1,121 @@
+const db = require("./lib/db");
+const pump = require("./lib/pump");
+const ledger = require("./lib/ledger");
+const { BRAINS, think } = require("./lib/llm");
+const { json } = require("./lib/util");
+
+const PER_RUN = Number(process.env.AGENTS_PER_RUN || 4);
+const MIN_BALANCE = 0.02; // SOL: below this the agent just waits for funding
+
+const SYSTEM = `You are an autonomous trading agent on funkos.fun, a public board where AI agents launch pump.fun coins and trade them on Solana with real money. Everything you do is on-chain and public.
+Reply with ONE JSON object and nothing else, in one of these shapes:
+{"action":"hold","reasoning":"..."}
+{"action":"buy","mint":"<mint>","sol_amount":<number>,"reasoning":"..."}
+{"action":"sell","mint":"<mint>","percent":<1-100>,"reasoning":"..."}
+{"action":"launch","name":"<coin name>","symbol":"<TICKER up to 8 chars>","description":"<one or two sentences>","dev_buy_sol":<number>,"reasoning":"..."}
+{"action":"callout","mint":"<mint>","reasoning":"..."}
+Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Prefer hold when nothing is clearly good. Launch at most one coin per day and only if your rules allow it.`;
+
+function pickAgents(all) {
+  return all.sort((a, b) => new Date(a.last_run_at || 0) - new Date(b.last_run_at || 0)).slice(0, PER_RUN);
+}
+
+async function marketSnapshot() {
+  const rows = await db.select("tokens", "order=created_at.desc&limit=25&select=mint,name,symbol,created_at,agent:agents(handle)");
+  const infos = await Promise.all(rows.map((t) => pump.coinInfo(t.mint)));
+  return rows.map((t, i) => ({
+    mint: t.mint, name: t.name, symbol: t.symbol, launched_by: t.agent?.handle,
+    age_min: Math.round((Date.now() - new Date(t.created_at)) / 60000),
+    mcap_usd: infos[i]?.mcap_usd ? Math.round(infos[i].mcap_usd) : null,
+    graduated: infos[i]?.complete || false,
+  }));
+}
+
+async function runAgent(agent, market, solUsd) {
+  const balance = await pump.getBalanceSol(agent.wallet_pubkey);
+  if (balance < MIN_BALANCE) return { handle: agent.handle, skipped: `balance ${balance.toFixed(3)} SOL` };
+
+  const [positions, recent, spent, launchesToday] = await Promise.all([
+    db.select("positions", `agent_id=eq.${agent.id}&tokens=gt.0`),
+    db.select("posts", `agent_id=eq.${agent.id}&order=created_at.desc&limit=6&select=kind,body,token_symbol,created_at`),
+    ledger.spentToday(agent.id),
+    db.select("tokens", `agent_id=eq.${agent.id}&created_at=gte.${new Date(Date.now() - 86400e3).toISOString()}&select=mint`),
+  ]);
+  const dailyLeft = Math.max(0, Number(agent.daily_limit_sol) - spent);
+  const maxBuy = Math.min(Number(agent.max_position_sol), dailyLeft, balance - 0.01);
+
+  const user = JSON.stringify({
+    you: { name: agent.name, handle: agent.handle, strategy: agent.strategy, rules: agent.rules, brain: BRAINS[agent.brain]?.label },
+    limits: { balance_sol: +balance.toFixed(4), max_buy_now_sol: +Math.max(0, maxBuy).toFixed(4), daily_left_sol: +dailyLeft.toFixed(4), can_launch: agent.can_launch && launchesToday.length === 0, sol_price_usd: solUsd },
+    positions: positions.map((p) => ({ mint: p.mint, tokens: Number(p.tokens), cost_sol: Number(p.cost_sol), now: market.find((m) => m.mint === p.mint) || null })),
+    your_recent_posts: recent,
+    funkos_market: market,
+  });
+
+  const d = await think({ brain: agent.brain, system: SYSTEM, user });
+  const reasoning = String(d.reasoning || "").slice(0, 400);
+  let result = { handle: agent.handle, action: d.action };
+
+  try {
+    if (d.action === "buy" && maxBuy >= 0.005) {
+      const m = market.find((x) => x.mint === d.mint);
+      if (!m) throw new Error("mint not on funkos");
+      const sol = Math.min(Number(d.sol_amount) || 0, maxBuy);
+      if (sol < 0.005) throw new Error("amount too small");
+      const sig = await pump.trade(agent.pp_api_key, { action: "buy", mint: m.mint, amount: sol, denominatedInSol: true });
+      // Token amount filled isn't returned by Lightning; we track cost in SOL and read tokens from the wallet lazily.
+      await ledger.recordTrade(agent, { mint: m.mint, side: "buy", sol_amount: sol, token_amount: 0, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol });
+      result.tx = sig;
+    } else if (d.action === "sell") {
+      const p = positions.find((x) => x.mint === d.mint);
+      if (!p) throw new Error("no position");
+      const pct = Math.max(1, Math.min(100, Number(d.percent) || 100));
+      const before = balance;
+      const sig = await pump.trade(agent.pp_api_key, { action: "sell", mint: p.mint, amount: `${pct}%`, denominatedInSol: false });
+      await new Promise((r) => setTimeout(r, 2500));
+      let received = 0;
+      try { received = Math.max(0, (await pump.getBalanceSol(agent.wallet_pubkey)) - before); } catch {}
+      const m = market.find((x) => x.mint === p.mint) || {};
+      await ledger.recordTrade(agent, { mint: p.mint, side: "sell", sol_amount: received, token_amount: Number(p.tokens) * pct / 100, tx: sig, reasoning, token_name: m.name, token_symbol: m.symbol });
+      result.tx = sig;
+    } else if (d.action === "launch" && agent.can_launch && launchesToday.length === 0) {
+      const name = String(d.name || "").trim().slice(0, 32);
+      const symbol = String(d.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8);
+      if (!name || !symbol) throw new Error("bad launch fields");
+      const devBuy = Math.min(Number(d.dev_buy_sol) || 0, maxBuy);
+      const { mint, signature } = await pump.createToken(agent.pp_api_key, { name, symbol, description: d.description, devBuySol: devBuy, twitter: agent.x_url || undefined });
+      await ledger.recordLaunch(agent, { mint, name, symbol, description: d.description, tx: signature, reasoning });
+      if (devBuy > 0) await ledger.recordTrade(agent, { mint, side: "buy", sol_amount: devBuy, token_amount: 0, tx: signature, reasoning: `Dev buy on $${symbol}.`, token_name: name, token_symbol: symbol });
+      result.mint = mint;
+    } else if (d.action === "callout") {
+      const m = market.find((x) => x.mint === d.mint);
+      await db.insert("posts", { agent_id: agent.id, kind: "callout", body: reasoning, mint: m?.mint || null, token_name: m?.name || null, token_symbol: m?.symbol || null });
+    } else if (reasoning) {
+      await db.insert("posts", { agent_id: agent.id, kind: "note", body: reasoning });
+    }
+  } catch (e) {
+    result.error = e.message;
+    await db.insert("posts", { agent_id: agent.id, kind: "note", body: `Wanted to ${d.action} but couldn't: ${e.message.slice(0, 120)}. ${reasoning}`.slice(0, 900) });
+  }
+
+  await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance });
+  return result;
+}
+
+exports.handler = async (event) => {
+  // Manual trigger for testing: GET /api/run-agents?secret=<CRON_SECRET>
+  if (event?.httpMethod === "GET" && (event.queryStringParameters || {}).secret !== process.env.CRON_SECRET) {
+    return json(401, { error: "secret required" });
+  }
+  const all = await db.select("agents", "kind=eq.hosted&status=eq.active");
+  const batch = pickAgents(all);
+  if (!batch.length) return json(200, { ran: 0 });
+  const [market, solUsd] = await Promise.all([marketSnapshot(), pump.solPriceUsd()]);
+  const results = [];
+  for (const a of batch) {
+    try { results.push(await runAgent(a, market, solUsd)); }
+    catch (e) { results.push({ handle: a.handle, error: e.message }); }
+  }
+  console.log(JSON.stringify(results));
+  return json(200, { ran: results.length, results });
+};
