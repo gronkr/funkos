@@ -286,3 +286,80 @@ h1 { font-size: 34px; line-height: 1.1; } h2 { font-size: 18px; } h3 { font-size
 #p-chart .chart-empty { flex: 1; display: grid; place-items: center; }
 #p-swap-list { max-height: 520px; }
 @media (max-width: 1000px) { .profile-grid.top { align-items: start; } }
+
+/* ===== mobile ===== */
+.mobile-tools { display: none; }
+@media (max-width: 720px) {
+  body { font-size: 14px; }
+  .topbar { padding: 0 12px; gap: 8px; height: 56px; }
+  .brand-name { font-size: 14px; }
+  .brand-mark { width: 30px; height: 30px; }
+  #theme-btn, .topbar-right > a.btn-ghost { display: none; }
+  #create-btn { height: 36px; padding: 0 12px; font-size: 13px; }
+  .menu-btn { padding: 4px 6px; }
+  .mobile-tools { display: flex; gap: 8px; padding: 12px 22px; border-bottom: 1px solid var(--border); }
+  .mobile-tools .btn { flex: 1; height: 38px; }
+  .page { padding: 16px 12px 32px; }
+  .foot { padding: 16px 12px 24px; gap: 12px; }
+  h1, .hero-copy h1 { font-size: 24px; }
+  .hero-copy { padding: 20px; }
+  .hero-copy p { font-size: 15px; }
+  .hero-actions .btn { flex: 1 1 auto; height: 40px; padding: 0 12px; }
+  .hero-stats { gap: 8px; }
+  .stat { padding: 12px; }
+  .stat b { font-size: 20px; }
+  .page-head { gap: 10px; }
+  .page-head p { font-size: 14px; }
+  .page-head .btn { height: 36px; padding: 0 12px; font-size: 13px; }
+  .board-head { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .seg-btn { padding: 6px 9px; }
+
+  /* table rows become flex rows: main cell grows, numbers shrink-wrap, secondary cells hidden */
+  .coin-head { display: none !important; }
+  .coin { display: flex !important; align-items: center; gap: 10px; padding: 10px 12px; }
+  .coin > * { flex: none; min-width: 0; }
+  .coin > .coin-agent, .coin > .name, .coin > a.coin-agent { flex: 1 1 auto; min-width: 0; }
+  .coin .name b, .coin .coin-agent b, .coin .who b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .coin .name small, .coin .who small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .coin .num { font-size: 11px; }
+  .coin .rankno, .coin > .num:first-child { width: 22px; }
+  .hide-sm, .coin .c-agent, .coin .c-launch { display: none !important; }
+  .avatar { width: 34px; height: 34px; }
+
+  /* profile */
+  .profile-head { gap: 12px; align-items: flex-start; }
+  .profile-head .avatar.xl { width: 64px; height: 64px; }
+  .profile-head > .actions { order: 3; width: 100%; }
+  .profile-head > .actions .btn { flex: 1; }
+  .profile-head > .spacer { display: none; }
+  .actions { gap: 6px; }
+  .actions .fine { display: none; }
+  .chart-head { flex-wrap: wrap; }
+  .chart-big b { font-size: 24px; }
+  #p-chart .chart-wrap, #p-chart .chart-wrap svg { min-height: 180px; }
+  #p-swap-list { max-height: 380px; }
+  .kv { grid-template-columns: 1fr 1fr 1fr; }
+  .stat-tiles { grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .stat.tile { padding: 10px; }
+  .stat.tile b { font-size: 15px; }
+  .stat.tile small:last-child { display: none; }
+  .season-card { gap: 12px; padding: 14px; }
+  .season-timer { font-size: 22px; }
+  .season-top { gap: 10px; }
+  .modal-box, .modal-box.wide { padding: 18px; border-radius: 14px; }
+  .brains { grid-template-columns: repeat(3, 1fr); }
+  .post { grid-template-columns: 34px 1fr; padding: 12px; gap: 10px; }
+  .post-meta { font-size: 12px; }
+  .act { grid-template-columns: 34px 1fr; }
+  .act .amt { grid-column: 2; text-align: left; }
+  .tokenbar { padding: 8px 10px; }
+  .rival-side .avatar.xl { width: 56px; height: 56px; }
+}
+@media (max-width: 720px) {
+  .hero-stats[style] { grid-template-columns: 1fr 1fr !important; }
+  .season-timer.lg { font-size: 26px; }
+  .season-big { text-align: left; width: 100%; }
+  .page-head .spacer { display: none; }
+  .stat { flex-direction: column; align-items: flex-start; gap: 2px; }
+}
+.chart-tip[hidden] { display: none; }
