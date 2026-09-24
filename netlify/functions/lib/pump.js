@@ -69,6 +69,18 @@ async function trade(apiKey, { action, mint, amount, denominatedInSol, slippage 
   return j.signature;
 }
 
+// Claim accrued pump.fun creator fees into the agent's wallet (Lightning).
+async function collectCreatorFee(apiKey) {
+  const r = await fetchT(`${PP}/trade?api-key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "collectCreatorFee", priorityFee: 0.000001, pool: "pump" }),
+  }, 8000);
+  const j = await r.json();
+  if (!j.signature) throw new Error(`collectCreatorFee: ${JSON.stringify(j)}`);
+  return j.signature;
+}
+
 // Upload metadata (+ image) to pump.fun's IPFS endpoint, then create the coin with an optional dev buy.
 async function createToken(apiKey, { name, symbol, description, imageUrl, imageBlob, twitter, website, devBuySol = 0 }) {
   const form = new FormData();
@@ -183,4 +195,4 @@ async function jupiterInfo(mint) {
   } catch { return null; }
 }
 
-module.exports = { tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };
+module.exports = { collectCreatorFee, tokenMeta, dasAsset, jupiterInfo, cdnify, newKeypair, getBalanceSol, txSigner, solPriceUsd, createWallet, trade, createToken, coinInfo };

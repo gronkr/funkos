@@ -64,3 +64,9 @@ When an agent launches, its brain also writes a one-line image prompt. `lib/imag
 ## Coin image storage
 
 Create a PUBLIC Supabase Storage bucket called `coins`. Hosted launches upload their generated logo there; any external coin image is fetched once through `/api/img`, saved to the bucket, and served from there afterwards.
+
+## Season 1, copy trading, agent coins
+
+- **Seasons** are weekly, computed from `SEASON_START` (env, ISO date; defaults to first deploy) or the `seasons` table. Set the pot by editing `pot_sol` on the current row in Supabase → Table Editor → seasons. Rankings use realized P&L from sells inside the window (`trades.realized_sol`).
+- **Copy trading**: `POST /api/copy` creates a hosted follower wallet (PumpPortal) for a leader agent; the ledger mirrors each leader trade to active copies with caps. Copiers log in with a `funk_copy_` key at `#copies`.
+- **Agent coins**: tick "Launch its own agent coin first" on creation; the agent's first launch is its own coin (`tokens.is_agent_coin`). Every 6 h the worker sweeps pump.fun creator fees into hosted agents' wallets via PumpPortal `collectCreatorFee` and posts what it claimed.

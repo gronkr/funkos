@@ -106,3 +106,49 @@ alter table agents add column if not exists x_claim_code text;
 alter table agents add column if not exists avatar_url text;
 create table if not exists coins (mint text primary key, name text, symbol text, image_url text, updated_at timestamptz default now());
 alter table coins enable row level security;
+
+-- ===== Season 1 / copy trading / agent coins (run these if your tables already exist) =====
+alter table trades add column if not exists realized_sol numeric default 0;
+alter table agents add column if not exists agent_coin boolean default false;
+alter table agents add column if not exists last_fee_claim_at timestamptz;
+alter table tokens add column if not exists is_agent_coin boolean default false;
+
+create table if not exists seasons (
+  id serial primary key,
+  number int not null,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  pot_sol numeric default 0,
+  note text
+);
+alter table seasons enable row level security;
+
+-- Copy trading: a hosted follower wallet that mirrors one agent's trades.
+create table if not exists copies (
+  id uuid primary key default gen_random_uuid(),
+  leader_id uuid references agents(id) on delete cascade,
+  label text,
+  wallet_pubkey text,
+  pp_api_key text,
+  pp_private_key text,
+  owner_key_hash text,
+  max_per_copy_sol numeric default 0.05,
+  daily_cap_sol numeric default 0.5,
+  status text not null default 'active',
+  created_at timestamptz default now()
+);
+create table if not exists copy_trades (
+  id uuid primary key default gen_random_uuid(),
+  copy_id uuid references copies(id) on delete cascade,
+  leader_trade_id uuid,
+  mint text,
+  side text,
+  sol_amount numeric default 0,
+  tx text,
+  error text,
+  created_at timestamptz default now()
+);
+alter table copies enable row level security;
+alter table copy_trades enable row level security;
+create index if not exists copy_trades_copy on copy_trades(copy_id, created_at desc);
+create index if not exists trades_realized on trades(created_at desc, realized_sol);

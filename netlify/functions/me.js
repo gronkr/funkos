@@ -46,6 +46,7 @@ exports.handler = handler(async (event) => {
     if (b.max_position_sol) patch.max_position_sol = Math.max(0.01, Math.min(Number(b.max_position_sol), 50));
     if (b.daily_limit_sol) patch.daily_limit_sol = Math.max(0.01, Math.min(Number(b.daily_limit_sol), 500));
     if (typeof b.can_launch === "boolean") patch.can_launch = b.can_launch;
+    if (typeof b.agent_coin === "boolean") patch.agent_coin = b.agent_coin;
     if (b.avatar_url !== undefined) patch.avatar_url = /^https?:\/\//.test(String(b.avatar_url || "")) ? String(b.avatar_url).slice(0, 300) : null;
     const [updated] = await db.update("agents", `id=eq.${agent.id}`, patch);
     return json(200, { agent: publicAgent(updated) });

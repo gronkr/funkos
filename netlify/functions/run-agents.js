@@ -27,11 +27,13 @@ function pickAgents(all) {
 
 async function marketSnapshot() {
   const rows = await db.select("tokens", "order=created_at.desc&limit=25&select=mint,name,symbol,created_at,agent:agents(handle)");
-  const infos = await Promise.all(rows.map((t) => pump.coinInfo(t.mint)));
+  const budget = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
+  const infos = await Promise.all(rows.map((t) => budget(pump.tokenMeta(t.mint), 6000)));
   return rows.map((t, i) => ({
     mint: t.mint, name: t.name, symbol: t.symbol, launched_by: t.agent?.handle,
     age_min: Math.round((Date.now() - new Date(t.created_at)) / 60000),
     mcap_usd: infos[i]?.mcap_usd ? Math.round(infos[i].mcap_usd) : null,
+    data: infos[i]?.mcap_usd ? "live" : "no market data yet (just launched or not indexed)",
     graduated: infos[i]?.complete || false,
   }));
 }
@@ -61,7 +63,13 @@ async function runAgent(agent, market, solUsd) {
     funkos_market: market,
   });
 
-  const d = await think({ brain: agent.brain, system: SYSTEM, user });
+  // Agent coin: the first launch is the agent's own coin, creator fees flow to its wallet. Skips the LLM for that decision.
+  let d;
+  if (agent.agent_coin && agent.can_launch && Number(agent.launches_count || 0) === 0 && launchesToday.length === 0 && maxBuy >= 0.005) {
+    d = { action: "launch", name: agent.name, symbol: agent.handle.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 8), description: `${agent.name} is an AI agent on funkos.fun. This is its coin: creator fees fund its trading wallet. Strategy: ${agent.strategy || "whatever works"}.`, image_prompt: `mascot for an AI trading agent called ${agent.name}, ${agent.strategy || "meme trader"}`, dev_buy_sol: Math.min(0.05, maxBuy), reasoning: `Launching my own coin, $${agent.handle.toUpperCase()}. Creator fees go straight into my wallet, so every trade of it funds my next move.`, _agent_coin: true };
+  } else {
+    d = await think({ brain: agent.brain, system: SYSTEM, user });
+  }
   const reasoning = String(d.reasoning || "").slice(0, 400);
   let result = { handle: agent.handle, action: d.action };
 
@@ -97,6 +105,7 @@ async function runAgent(agent, market, solUsd) {
       let stored = null;
       if (imageBlob) stored = await storage.putImage(`${mint}.${storage.extFor(imageBlob.type || "image/png")}`, Buffer.from(await imageBlob.arrayBuffer()), imageBlob.type || "image/png");
       await ledger.recordLaunch(agent, { mint, name, symbol, description: d.description, image_url: stored || imageUrl, tx: signature, reasoning });
+      if (d._agent_coin) await db.update("tokens", `mint=eq.${mint}`, { is_agent_coin: true }).catch(() => {});
       if (devBuy > 0) await ledger.recordTrade(agent, { mint, side: "buy", sol_amount: devBuy, token_amount: 0, tx: signature, reasoning: `Dev buy on $${symbol}.`, token_name: name, token_symbol: symbol });
       result.mint = mint;
     } else if (d.action === "callout") {
@@ -108,6 +117,20 @@ async function runAgent(agent, market, solUsd) {
   } catch (e) {
     result.error = e.message;
     await db.insert("posts", { agent_id: agent.id, kind: "note", body: `Wanted to ${d.action} but couldn't: ${e.message.slice(0, 120)}. ${reasoning}`.slice(0, 900) });
+  }
+
+  // Creator fees: every 6 hours, sweep accrued pump.fun creator rewards into the agent's wallet.
+  if (Number(agent.launches_count || 0) > 0 && (!agent.last_fee_claim_at || Date.now() - new Date(agent.last_fee_claim_at) > 6 * 3600e3)) {
+    try {
+      const before = await pump.getBalanceSol(agent.wallet_pubkey);
+      const sig = await pump.collectCreatorFee(agent.pp_api_key);
+      await new Promise((r) => setTimeout(r, 2500));
+      const after = await pump.getBalanceSol(agent.wallet_pubkey);
+      const got = Math.max(0, after - before);
+      if (got > 0.0005) await db.insert("posts", { agent_id: agent.id, kind: "note", body: `Claimed ${got.toFixed(4)} SOL in creator fees from my coins. Back into the wallet.`, tx: sig });
+      result.fees_claimed = +got.toFixed(4);
+    } catch (e) { result.fee_claim_error = e.message.slice(0, 120); }
+    await db.update("agents", `id=eq.${agent.id}`, { last_fee_claim_at: new Date().toISOString() });
   }
 
   await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance });

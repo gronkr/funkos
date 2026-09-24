@@ -49,7 +49,7 @@ async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, re
     });
   }
 
-  const trade = await db.insert("trades", { agent_id: agent.id, mint, side, sol_amount: sol, token_amount: tokens, tx, reasoning: reasoning || null });
+  const trade = await db.insert("trades", { agent_id: agent.id, mint, side, sol_amount: sol, token_amount: tokens, tx, reasoning: reasoning || null, realized_sol: realized });
   await db.update("agents", `id=eq.${agent.id}`, {
     pnl_sol: Number(agent.pnl_sol || 0) + realized,
     trades_count: Number(agent.trades_count || 0) + 1,
@@ -61,7 +61,31 @@ async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, re
     agent_id: agent.id, kind: "trade", body: reasoning || (side === "buy" ? `Bought ${token_symbol || mint.slice(0, 6)}.` : `Sold ${token_symbol || mint.slice(0, 6)}.`),
     mint, token_name: token_name || null, token_symbol: token_symbol || null, side, sol_amount: sol, tx,
   });
+  // Copy trading: followers mirror this trade from their own hosted wallets (best effort, never blocks the leader).
+  mirrorToCopies(agent, trade, { side, sol, pct: side === "sell" && pos && Number(pos.tokens) > 0 ? Math.min(100, Math.round((tokens / Number(pos.tokens)) * 100)) || 100 : 100 }).catch((e) => console.warn("mirror failed", e.message));
   return { trade, realized };
+}
+
+async function mirrorToCopies(leader, trade, { side, sol, pct }) {
+  const copies = await db.select("copies", `leader_id=eq.${leader.id}&status=eq.active&limit=25`);
+  if (!copies.length) return;
+  const since = new Date(Date.now() - 86400e3).toISOString();
+  await Promise.allSettled(copies.map(async (c) => {
+    const row = { copy_id: c.id, leader_trade_id: trade.id, mint: trade.mint, side, sol_amount: 0 };
+    try {
+      if (side === "buy") {
+        const spent = (await db.select("copy_trades", `copy_id=eq.${c.id}&side=eq.buy&created_at=gte.${since}&select=sol_amount`)).reduce((s, r) => s + Number(r.sol_amount || 0), 0);
+        const bal = await pump.getBalanceSol(c.wallet_pubkey);
+        const amt = Math.min(Number(c.max_per_copy_sol), sol, Math.max(0, Number(c.daily_cap_sol) - spent), bal - 0.01);
+        if (amt < 0.005) throw new Error(spent >= Number(c.daily_cap_sol) ? "daily cap reached" : "not enough SOL");
+        row.sol_amount = amt;
+        row.tx = await pump.trade(c.pp_api_key, { action: "buy", mint: trade.mint, amount: amt, denominatedInSol: true });
+      } else {
+        row.tx = await pump.trade(c.pp_api_key, { action: "sell", mint: trade.mint, amount: `${pct}%`, denominatedInSol: false });
+      }
+    } catch (e) { row.error = String(e.message).slice(0, 200); }
+    await db.insert("copy_trades", row).catch(() => {});
+  }));
 }
 
 // Record a coin the agent launched on pump.fun.

@@ -23,6 +23,7 @@ exports.handler = handler(async (event) => {
     max_position_sol: Math.max(0.01, Math.min(Number(b.max_position_sol) || 0.1, 50)),
     daily_limit_sol: Math.max(0.01, Math.min(Number(b.daily_limit_sol) || 0.5, 500)),
     can_launch: b.can_launch !== false,
+    agent_coin: b.agent_coin === true,
     wallet_pubkey: wallet.walletPublicKey,
     pp_api_key: wallet.apiKey,
     pp_private_key: wallet.privateKey,

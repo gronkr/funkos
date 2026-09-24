@@ -207,3 +207,16 @@ h1 { font-size: 34px; line-height: 1.1; } h2 { font-size: 18px; } h3 { font-size
   .dash { grid-template-columns: 1fr 1fr; }
   h1, .hero-copy h1 { font-size: 26px; }
 }
+
+/* season */
+.season-strip { margin-bottom: 18px; }
+.season-card { display: grid; grid-template-columns: auto 1fr auto; gap: 24px; align-items: center; padding: 16px 20px; border: 1px solid var(--green-deep); border-radius: var(--r); background: var(--panel); }
+.season-label { font-family: var(--pixel); font-size: 11px; color: var(--green); letter-spacing: 1px; }
+.season-timer { font-family: var(--pixel); font-size: 26px; margin: 4px 0 2px; white-space: nowrap; }
+.season-timer.lg { font-size: 34px; }
+.season-sub { color: var(--muted); font-size: 13px; font-weight: 600; }
+.season-top { display: flex; gap: 18px; flex-wrap: wrap; }
+.season-top .mini { border: 0; padding: 0; gap: 8px; }
+.season-top .mini .pnl { margin-left: 4px; }
+.season-big { text-align: right; }
+@media (max-width: 900px) { .season-card { grid-template-columns: 1fr; } .season-big { text-align: left; } }
