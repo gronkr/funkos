@@ -41,7 +41,7 @@ async function recordTrade(agent, { mint, side, sol_amount, token_amount, tx, re
     let held = tokens;
     if (!held && agent.wallet_pubkey) { await new Promise((r) => setTimeout(r, 2000)); held = await pump.getTokenBalance(agent.wallet_pubkey, mint); }
     if (pos) await db.update("positions", `id=eq.${pos.id}`, { tokens: held || Number(pos.tokens) + tokens, cost_sol: Number(pos.cost_sol) + sol });
-    else await db.insert("positions", { agent_id: agent.id, mint, tokens: held, cost_sol: sol });
+    else await db.insert("positions", { agent_id: agent.id, mint, tokens: held, cost_sol: sol, opened_at: new Date().toISOString() });
   } else if (side === "sell" && pos && (Number(pos.cost_sol) > 0 || Number(pos.tokens) > 0)) {
     // Fraction closed: explicit pct wins; else token ratio if we know it; else treat as a full close.
     const frac = pct ? Math.min(1, Number(pct) / 100) : tokens > 0 && Number(pos.tokens) > 0 ? Math.min(1, tokens / Number(pos.tokens)) : 1;

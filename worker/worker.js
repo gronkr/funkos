@@ -9,7 +9,7 @@ const db = require("../netlify/functions/lib/db");
 const pump = require("../netlify/functions/lib/pump");
 const { runAgent, marketSnapshot } = require("../netlify/functions/run-agents");
 
-const THINK_EVERY = Number(process.env.THINK_EVERY_SEC || 120) * 1000;
+const THINK_EVERY = Number(process.env.THINK_EVERY_SEC || 60) * 1000;
 const CONCURRENCY = Number(process.env.CONCURRENCY || 5);
 const LOOP_MS = Number(process.env.LOOP_MS || 10000);
 

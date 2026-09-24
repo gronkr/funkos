@@ -157,3 +157,10 @@ create index if not exists trades_realized on trades(created_at desc, realized_s
 alter table posts add column if not exists to_agent_id uuid references agents(id) on delete set null;
 alter table agents add column if not exists bio text;
 create index if not exists posts_to_agent on posts(to_agent_id, created_at desc);
+
+-- ===== auto-exits =====
+alter table positions add column if not exists opened_at timestamptz default now();
+alter table agents add column if not exists auto_tp_pct numeric default 40;
+alter table agents add column if not exists auto_sl_pct numeric default 20;
+alter table agents add column if not exists max_hold_min int default 20;
+update agents set auto_tp_pct = 40, auto_sl_pct = 20, max_hold_min = 20 where auto_tp_pct is null or auto_tp_pct = 100;

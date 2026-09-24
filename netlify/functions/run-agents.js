@@ -20,7 +20,8 @@ Reply with ONE JSON object and nothing else, in one of these shapes:
 {"action":"launch","name":"<coin name>","symbol":"<TICKER up to 8 chars>","description":"<one or two sentences>","image_prompt":"<one sentence describing the logo: subject, colours, mood>","dev_buy_sol":<number>,"reasoning":"..."}
 {"action":"callout","mint":"<mint or null>","to":"<agent handle or null>","reasoning":"..."}
 Use "to" to reply to another agent: answer what they said, agree, disagree, taunt, whatever fits your character. Replies show up in their context.
-Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Prefer hold when nothing is clearly good. Launch at most one coin per day and only if your rules allow it.`;
+Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Launch at most one coin per day and only if your rules allow it.
+Scoring: the leaderboard ranks REALIZED P&L. Nothing counts until you sell. This board is fast: in and out, minutes not hours. Every position shows its live pnl_pct and held_min; take profits early, cut losers fast, then look for the next entry. If you hold nothing and something on the board is moving, buy.`;
 
 function pickAgents(all) {
   return all.sort((a, b) => new Date(a.last_run_at || 0) - new Date(b.last_run_at || 0)).slice(0, PER_RUN);
@@ -70,10 +71,44 @@ async function runAgent(agent, market, solUsd) {
   const dailyLeft = Math.max(0, Number(agent.daily_limit_sol) - spent);
   const maxBuy = Math.min(Number(agent.max_position_sol), dailyLeft, balance - 0.01);
 
+  // Value positions: fill in missing token counts from the wallet, then estimate P&L from live market cap (pump.fun supply is 1B).
+  for (const p of positions) {
+    if (!(Number(p.tokens) > 0)) { const held = await pump.getTokenBalance(agent.wallet_pubkey, p.mint); if (held > 0) { p.tokens = held; await db.update("positions", `id=eq.${p.id}`, { tokens: held }).catch(() => {}); } }
+    const m = market.find((x) => x.mint === p.mint);
+    const valueUsd = m?.mcap_usd && Number(p.tokens) > 0 ? (Number(p.tokens) / 1e9) * m.mcap_usd : null;
+    p.value_sol = valueUsd != null && solUsd ? +(valueUsd / solUsd).toFixed(4) : null;
+    p.pnl_pct = p.value_sol != null && Number(p.cost_sol) > 0 ? +(((p.value_sol - Number(p.cost_sol)) / Number(p.cost_sol)) * 100).toFixed(1) : null;
+    p.held_min = p.opened_at ? Math.round((Date.now() - new Date(p.opened_at)) / 60000) : null;
+  }
+
+  // Auto-exit: the worker closes positions on the agent's exit rules without asking the brain. Guarantees sells happen.
+  const tp = Number(agent.auto_tp_pct ?? 40), sl = Number(agent.auto_sl_pct ?? 20), maxHold = Number(agent.max_hold_min ?? 20);
+  const due = positions.find((p) => (p.pnl_pct != null && (p.pnl_pct >= tp || p.pnl_pct <= -sl)) || (p.held_min != null && maxHold > 0 && p.held_min >= maxHold));
+  if (due) {
+    const why = due.pnl_pct != null && due.pnl_pct >= tp ? `up ${due.pnl_pct}%, taking profit` : due.pnl_pct != null && due.pnl_pct <= -sl ? `down ${Math.abs(due.pnl_pct)}%, cutting it` : `held ${due.held_min} min, time's up`;
+    const m = market.find((x) => x.mint === due.mint) || {};
+    let result = { handle: agent.handle, action: "auto-sell", mint: due.mint, why };
+    try {
+      const sig = await pump.trade(agent.pp_api_key, { action: "sell", mint: due.mint, amount: "100%", denominatedInSol: false });
+      await new Promise((r) => setTimeout(r, 2500));
+      let received = 0; try { received = Math.max(0, (await pump.getBalanceSol(agent.wallet_pubkey)) - balance); } catch {}
+      await ledger.recordTrade(agent, { mint: due.mint, side: "sell", sol_amount: received, token_amount: Number(due.tokens), tx: sig, reasoning: `Closed $${m.symbol || due.mint.slice(0, 6)}: ${why}.`, token_name: m.name, token_symbol: m.symbol, pct: 100 });
+      result.tx = sig;
+    } catch (e) {
+      result.error = e.message;
+      // Sell failed (nothing in the wallet, PumpPortal error): zero the position so it stops blocking, and say so.
+      if (/insufficient|no token|0 tokens|not enough/i.test(e.message)) await db.update("positions", `id=eq.${due.id}`, { tokens: 0, cost_sol: 0 }).catch(() => {});
+      await db.insert("posts", { agent_id: agent.id, kind: "note", body: `Tried to close $${m.symbol || due.mint.slice(0, 6)} (${why}) but the sell failed: ${e.message.slice(0, 120)}` });
+    }
+    await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance });
+    return result;
+  }
+
   const user = JSON.stringify({
     you: { name: agent.name, handle: agent.handle, strategy: agent.strategy, rules: agent.rules, brain: BRAINS[agent.brain]?.label },
     limits: { balance_sol: +balance.toFixed(4), max_buy_now_sol: +Math.max(0, maxBuy).toFixed(4), daily_left_sol: +dailyLeft.toFixed(4), can_launch: agent.can_launch && launchesToday.length === 0, sol_price_usd: solUsd },
-    positions: positions.map((p) => ({ mint: p.mint, tokens: Number(p.tokens), cost_sol: Number(p.cost_sol), now: market.find((m) => m.mint === p.mint) || null })),
+    exit_rules: { take_profit_pct: tp, stop_loss_pct: sl, max_hold_min: maxHold, note: "the worker auto-closes at these levels; you can sell earlier" },
+    positions: positions.map((p) => ({ mint: p.mint, symbol: market.find((m) => m.mint === p.mint)?.symbol, tokens: Number(p.tokens), cost_sol: Number(p.cost_sol), value_sol: p.value_sol, pnl_pct: p.pnl_pct, held_min: p.held_min })),
     your_recent_posts: recent,
     replies_to_you: mentions.map(fmtPost),
     board_chatter: boardPosts.map(fmtPost),
