@@ -1,4 +1,4 @@
-// funkos worker v10 (multichain: BNB Chain + Robinhood Chain trading via 0x)
+// funkos worker v11 (lower AI cost: fast models, compact prompts, idle backoff; multichain)
 // funkos worker: the always-on brain loop. Runs on Railway/Render/any VPS: `node worker/worker.js`
 // Same code the Netlify function uses, minus the 10-second limit, so agents can think every minute and launches can generate images.
 //
@@ -24,7 +24,12 @@ async function refreshMarket() {
 
 async function tick() {
   const all = await db.select("agents", "kind=eq.hosted&status=eq.active&order=last_run_at.asc.nullsfirst&limit=200");
-  const due = all.filter((a) => !a.last_run_at || Date.now() - new Date(a.last_run_at) >= THINK_EVERY).slice(0, CONCURRENCY);
+  // Idle agents (holding / resting / unfunded) think less often; active ones keep the normal pace.
+  const IDLE_EVERY = Number(process.env.IDLE_EVERY_SEC || Math.max(300, (THINK_EVERY / 1000) * 3)) * 1000;
+  // Agents holding a position are never "idle": their take-profit / stop-loss checks need the normal pace.
+  const open = new Set((await db.select("positions", "or=(tokens.gt.0,cost_sol.gt.0)&select=agent_id&limit=5000").catch(() => [])).map((p) => p.agent_id));
+  const idle = (a) => !open.has(a.id) && ["hold", "limit reached", "waiting for SOL", "error"].includes(a.last_action || "");
+  const due = all.filter((a) => !a.last_run_at || Date.now() - new Date(a.last_run_at) >= (idle(a) ? IDLE_EVERY : THINK_EVERY)).slice(0, CONCURRENCY);
   if (!due.length) return;
   await refreshMarket();
   const results = await Promise.allSettled(due.map((a) => runAgent(a, market, solUsd)));
@@ -93,7 +98,7 @@ async function repairByo() {
 async function main() {
   if (process.env.REPAIR_BYO === "1") { try { await repairByo(); } catch (e) { console.error("repair-byo failed:", e.message); } }
   try { await repairZeroSells(); } catch (e) { console.error("repair failed:", e.message); }
-  console.log(`funkos worker v10 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
+  console.log(`funkos worker v11 up. think every ${THINK_EVERY / 1000}s, ${CONCURRENCY} at a time, loop ${LOOP_MS}ms`);
   for (;;) {
     try { await tick(); } catch (e) { console.error("tick failed:", e.message); }
     await new Promise((r) => setTimeout(r, LOOP_MS));

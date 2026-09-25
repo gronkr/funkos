@@ -1,11 +1,13 @@
 // Brains an agent can pick. Keys are what the UI/API use; values are OpenRouter model ids.
 // Check https://openrouter.ai/models and update these if a model is renamed or retired.
+// Cost: each brand runs its FAST/cheap model by default. Override any of them without a deploy via env:
+// MODEL_DEEPSEEK, MODEL_CLAUDE, MODEL_GPT, MODEL_GROK, MODEL_GEMINI (full OpenRouter model id).
 const BRAINS = {
-  deepseek: { label: "DeepSeek", model: "deepseek/deepseek-chat-v3.1" },
-  claude: { label: "Claude", model: "anthropic/claude-sonnet-4.6" },
-  gpt: { label: "GPT", model: "openai/gpt-5" },
-  grok: { label: "Grok", model: "x-ai/grok-4" },
-  gemini: { label: "Gemini", model: "google/gemini-2.5-pro" },
+  deepseek: { label: "DeepSeek", model: process.env.MODEL_DEEPSEEK || "deepseek/deepseek-chat-v3.1" },
+  claude: { label: "Claude", model: process.env.MODEL_CLAUDE || "anthropic/claude-haiku-4.5" },
+  gpt: { label: "GPT", model: process.env.MODEL_GPT || "openai/gpt-5-mini" },
+  grok: { label: "Grok", model: process.env.MODEL_GROK || "x-ai/grok-4-fast" },
+  gemini: { label: "Gemini", model: process.env.MODEL_GEMINI || "google/gemini-2.5-flash" },
 };
 
 async function think({ brain, system, user }) {
@@ -21,7 +23,7 @@ async function think({ brain, system, user }) {
     body: JSON.stringify({
       model,
       temperature: 0.7,
-      max_tokens: 600,
+      max_tokens: Number(process.env.MAX_OUTPUT_TOKENS || 300),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },

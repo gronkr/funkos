@@ -26,15 +26,23 @@ function newKeypair() {
 }
 
 // ---------- RPC ----------
-async function rpc(method, params, ms = 5000) {
-  const res = await fetchT(RPC(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  }, ms);
+// Solana RPC with fallback: primary (SOLANA_RPC_URL), then SOLANA_RPC_FALLBACK (or the public endpoint) if the primary errors, rate-limits or runs out of credits.
+const FALLBACK = () => process.env.SOLANA_RPC_FALLBACK || "https://api.mainnet-beta.solana.com";
+let primaryDownUntil = 0; // after a primary failure, skip it for a minute instead of paying the timeout every call
+async function rpcAt(url, method, params, ms) {
+  const res = await fetchT(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }, ms);
+  if (res.status === 429 || res.status === 401 || res.status === 403 || res.status >= 500) throw Object.assign(new Error(`rpc ${method}: HTTP ${res.status}`), { transport: true });
   const j = await res.json();
-  if (j.error) throw new Error(`rpc ${method}: ${j.error.message}`);
+  if (j.error) { const e = new Error(`rpc ${method}: ${j.error.message}`); if (/credit|rate|limit|unauthori|forbidden|exceed/i.test(j.error.message || "")) e.transport = true; throw e; }
   return j.result;
+}
+async function rpc(method, params, ms = 5000) {
+  const primary = RPC();
+  if (Date.now() >= primaryDownUntil) {
+    try { return await rpcAt(primary, method, params, ms); }
+    catch (e) { if (!e.transport && !/abort|timeout|fetch failed|network/i.test(e.message)) throw e; primaryDownUntil = Date.now() + 60e3; console.warn(`primary RPC failing (${e.message}); using fallback for 60s`); }
+  }
+  return rpcAt(FALLBACK(), method, params, ms + 2000);
 }
 const getBalanceSol = async (pubkey) => (await rpc("getBalance", [pubkey])).value / 1e9;
 // SOL a wallet gained (or lost) in a confirmed transaction, read from the chain. Retries while the tx confirms.

@@ -39,10 +39,10 @@ exports.handler = handler(async () => {
   }
 
   const split = [0.6, 0.25, 0.15];
-  let pot = Number(season.pot_sol || 0), potWallet = process.env.POT_WALLET || null;
-  if (potWallet) { try { pot = await pump.getBalanceSol(potWallet); } catch {} }
+  let pot = Number(season.pot_sol || 0), potWallet = process.env.POT_WALLET || null, potError = null;
+  if (potWallet) { try { pot = await pump.getBalanceSol(potWallet); } catch (e) { pot = null; potError = "couldn't read the pot wallet right now"; } }
   return json(200, {
-    season: { number: season.number, starts_at: season.starts_at, ends_at: season.ends_at, pot_sol: pot, pot_wallet: potWallet, note: season.note, split, now: new Date().toISOString() },
+    season: { number: season.number, starts_at: season.starts_at, ends_at: season.ends_at, pot_sol: pot, pot_error: potError, pot_wallet: potWallet, note: season.note, split, now: new Date().toISOString() },
     leaders, brains: brainBoard, mvp,
   });
 });

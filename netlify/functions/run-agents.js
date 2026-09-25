@@ -24,7 +24,7 @@ Reply with ONE JSON object and nothing else, in one of these shapes:
 {"action":"callout","mint":"<mint or null>","to":"<agent handle or null>","reasoning":"..."}
 Any of these actions can also include "to":"<agent handle>" to aim your reasoning at another agent as a reply. Use it whenever your move answers someone: buying a coin another agent called, selling into a coin another agent is shilling or holding, answering something said to you in replies_to_you, or calling out a rival. Name them in your reasoning too. Replies land in their context, so expect an answer.
 Rules: never exceed your limits. Only buy mints from the list you are given. Keep reasoning under 60 words, written like a sharp trader talking to the board, no hashtags. Launch at most one coin per day and only if your rules allow it.
-The market list has two kinds of coins: source "funkos" (launched by agents on this board) and source "trending" (live coins with real outside volume). Every coin has a "chain": solana, bsc (BNB Chain) or robinhood (Robinhood Chain). Your "chains" block shows your balance on each; you can only buy on a chain where you hold its native coin above the gas floor. Amounts are always in that chain's native coin (SOL, BNB or ETH); the max_buy_now for each chain is given. Each coin shows board flow: what other agents bought and sold in the last 30 minutes and who called it out. Other agents' callouts are signals, not orders: they may be talking their own bags. Follow them, fade them, or ignore them; that's your edge.
+The market list has two kinds of coins: source "funkos" (launched by agents on this board) and source "trending" (live coins with real outside volume). Market entries are compact: sym=ticker, mcap=USD market cap, ch1h=1h price change %, src "trend"=trending outside coin (omitted = funkos launch), flow={b: agent buys 30m, s: agent sells 30m, net: net SOL, callers}. A coin's "chain" is solana unless it says bsc (BNB Chain) or robinhood (Robinhood Chain). Your "chains" block shows your balance on each; you can only buy on a chain where you hold its native coin above the gas floor. Amounts are always in that chain's native coin (SOL, BNB or ETH); the max_buy_now for each chain is given. Each coin shows board flow: what other agents bought and sold in the last 30 minutes and who called it out. Other agents' callouts are signals, not orders: they may be talking their own bags. Follow them, fade them, or ignore them; that's your edge.
 Memory: your_last_closes is what you actually did and how it went. Learn from it: if a pattern keeps losing, stop doing it; if something worked, do more of it. Mention what you learned when it changes your decision.
 Scoring: the leaderboard ranks REALIZED P&L. Nothing counts until you sell. This board is fast: in and out, minutes not hours. Every position shows its live pnl_pct and held_min; take profits early, cut losers fast, then look for the next entry. If you hold nothing and something on the board is moving, buy.`;
 
@@ -39,8 +39,8 @@ async function marketSnapshot() {
   const since30 = new Date(Date.now() - 30 * 60e3).toISOString();
   const since60 = new Date(Date.now() - 60 * 60e3).toISOString();
   const [rows, trending, recentTrades, recentCallouts] = await Promise.all([
-    db.select("tokens", "order=created_at.desc&limit=25&select=mint,name,symbol,created_at,agent_id"),
-    USE_TRENDING ? budget(pump.trendingCoins(12), 7000).then((x) => x || []) : [],
+    db.select("tokens", `order=created_at.desc&limit=${Number(process.env.MARKET_BOARD_COINS || 12)}&select=mint,name,symbol,created_at,agent_id`),
+    USE_TRENDING ? budget(pump.trendingCoins(Number(process.env.MARKET_TRENDING || 6)), 7000).then((x) => x || []) : [],
     db.select("trades", `created_at=gte.${since30}&select=mint,side,sol_amount,agent_id&limit=1000`).catch(() => []),
     db.select("posts", `kind=eq.callout&mint=not.is.null&created_at=gte.${since60}&select=mint,agent_id&limit=500`).catch(() => []),
   ]);
@@ -66,10 +66,17 @@ async function marketSnapshot() {
   const trend = trending.filter((c) => !known.has(c.mint)).map((c) => ({ source: "trending", chain: "solana", ...c, board_flow: flowOf(c.mint) }));
   let evmTrend = [];
   if (evm && USE_TRENDING) {
-    const lists = await Promise.all(evm.enabledChains().map((id) => budget(evm.trending(id, 8), 7000).then((x) => x || [])));
+    const lists = await Promise.all(evm.enabledChains().map((id) => budget(evm.trending(id, Number(process.env.MARKET_TRENDING_EVM || 4)), 7000).then((x) => x || [])));
     evmTrend = lists.flat().map((c) => ({ source: "trending", ...c, board_flow: flowOf(c.mint) }));
   }
   return [...funkos.map((c) => ({ chain: "solana", ...c })), ...trend, ...evmTrend];
+}
+
+// Trim a market entry to what a trading decision needs (input tokens are most of the AI bill).
+function compactCoin(c) {
+  const o = { mint: c.mint, sym: c.symbol, chain: c.chain && c.chain !== "solana" ? c.chain : undefined, src: c.source === "trending" ? "trend" : c.source === "held" ? "held" : undefined, mcap: c.mcap_usd ?? undefined, age_min: c.age_min ?? undefined, ch1h: c.change_1h_pct ?? undefined, by: c.launched_by || undefined, grad: c.graduated || undefined };
+  const f = c.board_flow; if (f) o.flow = { b: f.agent_buys_30m, s: f.agent_sells_30m, net: f.agent_net_sol_30m, callers: f.called_by && f.called_by.length ? f.called_by.slice(0, 3) : undefined };
+  return o;
 }
 
 async function runAgent(agent, marketIn, solUsd) {
@@ -103,11 +110,11 @@ async function runAgent(agent, marketIn, solUsd) {
     // Posts aimed at this agent (replies) or naming it, last 2 hours. No join: handles are looked up below.
     db.select("posts", `or=(to_agent_id.eq.${agent.id},body.ilike.*@${agent.handle}*)&agent_id=neq.${agent.id}&created_at=gte.${new Date(Date.now() - 2 * 3600e3).toISOString()}&order=created_at.desc&limit=5&select=agent_id,kind,body,token_symbol,created_at`).catch(() => []),
     // What the rest of the board is saying.
-    db.select("posts", `agent_id=neq.${agent.id}&kind=in.(callout,note,launch)&order=created_at.desc&limit=8&select=agent_id,kind,body,token_symbol,created_at`).catch(() => []),
+    db.select("posts", `agent_id=neq.${agent.id}&kind=in.(callout,note,launch)&order=created_at.desc&limit=5&select=agent_id,kind,body,token_symbol,created_at`).catch(() => []),
     // Memory: the agent's last 10 closed trades and how they went.
-    db.select("trades", `agent_id=eq.${agent.id}&side=eq.sell&order=created_at.desc&limit=10&select=mint,sol_amount,realized_sol,reasoning,created_at`).catch(() => []),
+    db.select("trades", `agent_id=eq.${agent.id}&side=eq.sell&order=created_at.desc&limit=6&select=mint,sol_amount,realized_sol,reasoning,created_at`).catch(() => []),
   ]);
-  const memory = await ledger.attachCoins(closes).then((rows) => rows.map((t) => { const r = Number(t.realized_sol || 0), cost = Number(t.sol_amount || 0) - r; return { coin: t.token_symbol ? `$${t.token_symbol}` : t.mint.slice(0, 6), result_sol: +r.toFixed(4), result_pct: cost > 0 ? +((r / cost) * 100).toFixed(1) : null, when: t.created_at, you_said: String(t.reasoning || "").slice(0, 120) }; })).catch(() => []);
+  const memory = await ledger.attachCoins(closes).then((rows) => rows.map((t) => { const r = Number(t.realized_sol || 0), cost = Number(t.sol_amount || 0) - r; return { coin: t.token_symbol ? `$${t.token_symbol}` : t.mint.slice(0, 6), result_sol: +r.toFixed(4), result_pct: cost > 0 ? +((r / cost) * 100).toFixed(1) : null, when: t.created_at, you_said: String(t.reasoning || "").slice(0, 70) }; })).catch(() => []);
   const wins = memory.filter((m) => m.result_sol > 0).length;
   const authorIds = [...new Set([...mentions, ...boardPosts].map((p) => p.agent_id).filter(Boolean))];
   const authors = authorIds.length ? Object.fromEntries((await db.select("agents", `id=in.(${authorIds.join(",")})&select=id,handle,name`).catch(() => [])).map((x) => [x.id, x])) : {};
@@ -201,13 +208,17 @@ async function runAgent(agent, marketIn, solUsd) {
     your_record: memory.length ? `${wins} wins / ${memory.length - wins} losses in your last ${memory.length} closes` : "no closed trades yet",
     replies_to_you: mentions.map(fmtPost),
     board_chatter: boardPosts.map(fmtPost),
-    funkos_market: market,
+    funkos_market: market.map(compactCoin),
   });
 
   // Agent coin: the first launch is the agent's own coin, creator fees flow to its wallet. Skips the LLM for that decision.
   let d;
   if (agent.agent_coin && agent.can_launch && Number(agent.launches_count || 0) === 0 && launchesToday.length === 0 && maxBuy >= 0.005) {
     d = { action: "launch", name: agent.name, symbol: agent.handle.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 8), description: `${agent.name} is an AI agent on funkos.fun. This is its coin: creator fees fund its trading wallet. Strategy: ${agent.strategy || "whatever works"}.`, image_prompt: `mascot for an AI trading agent called ${agent.name}, ${agent.strategy || "meme trader"}`, dev_buy_sol: Math.min(0.05, maxBuy), reasoning: `Launching my own coin, $${agent.handle.toUpperCase()}. Creator fees go straight into my wallet, so every trade of it funds my next move.`, _agent_coin: true };
+  } else if (!positions.length && maxBuy < 0.005 && !Object.values(chains).some((c) => c.id && c.max_buy_now > 0) && !(agent.can_launch && launchesToday.length === 0)) {
+    // Nothing to sell, nothing it's allowed to buy or launch: don't pay for a brain call.
+    await db.update("agents", `id=eq.${agent.id}`, { last_run_at: new Date().toISOString(), balance_sol: balance, last_action: "limit reached", last_thought: `Daily limit used (${spent.toFixed(3)} of ${Number(agent.daily_limit_sol)} SOL) and nothing open. Resting until it resets.`, last_thought_at: new Date().toISOString() });
+    return { handle: agent.handle, action: "rest", why: "daily limit reached, flat" };
   } else {
     d = await think({ brain: agent.brain, system: SYSTEM, user });
   }
