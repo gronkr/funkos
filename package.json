@@ -1,10 +1,14 @@
 {
-  "name": "funkos",
+  "name": "swarms",
   "private": true,
-  "version": "2.0.0",
-  "engines": { "node": ">=20" },
-  "scripts": { "start": "node worker/worker.js" },
+  "type": "module",
+  "scripts": {
+    "worker": "node worker/worker.js"
+  },
   "dependencies": {
-    "ethers": "^6.13.0"
-  }
+    "@solana/web3.js": "^1.95.3",
+    "@supabase/supabase-js": "^2.45.4",
+    "bs58": "^6.0.0"
+  },
+  "engines": { "node": ">=20" }
 }
